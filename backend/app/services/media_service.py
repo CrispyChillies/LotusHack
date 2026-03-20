@@ -29,10 +29,11 @@ import boto3
 from botocore.client import BaseClient
 from botocore.config import Config
 from botocore.exceptions import BotoCoreError, ClientError
-from dotenv import load_dotenv
+from dotenv import find_dotenv, load_dotenv
 from fastapi import HTTPException, UploadFile, status
 from fastapi.concurrency import run_in_threadpool
 
+load_dotenv(find_dotenv(usecwd=True))
 load_dotenv()
 
 _ALLOWED_MIME_TYPES = {
@@ -100,6 +101,19 @@ def _get_presign_expire_seconds() -> int:
 	return min(expire, 7 * 24 * 60 * 60)
 
 
+def _normalized_endpoint_base() -> str | None:
+	endpoint = os.getenv("AWS_S3_ENDPOINT_URL")
+	if not endpoint:
+		return None
+
+	parsed = urlparse(endpoint)
+	if not parsed.scheme or not parsed.netloc:
+		raise RuntimeError("AWS_S3_ENDPOINT_URL must be a valid URL")
+
+	base = f"{parsed.scheme}://{parsed.netloc}".rstrip("/")
+	return base
+
+
 @lru_cache(maxsize=1)
 def _get_s3_client() -> BaseClient:
 	session = boto3.session.Session(
@@ -110,7 +124,7 @@ def _get_s3_client() -> BaseClient:
 	)
 	return session.client(
 		"s3",
-		endpoint_url=os.getenv("AWS_S3_ENDPOINT_URL"),
+		endpoint_url=_normalized_endpoint_base(),
 		config=Config(
 			retries={"max_attempts": 10, "mode": "adaptive"},
 			connect_timeout=5,
@@ -121,9 +135,10 @@ def _get_s3_client() -> BaseClient:
 
 
 def _public_s3_url(bucket: str, key: str) -> str:
-	endpoint = os.getenv("AWS_S3_ENDPOINT_URL")
+	endpoint = _normalized_endpoint_base()
 	if endpoint:
-		endpoint = endpoint.rstrip("/")
+		if urlparse(endpoint).netloc.startswith(f"{bucket}."):
+			return f"{endpoint}/{key}"
 		return f"{endpoint}/{bucket}/{key}"
 	region = _get_region()
 	if region == "us-east-1":
