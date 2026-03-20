@@ -21,9 +21,8 @@ router = APIRouter()
 async def register(payload: UserRegister):
     """
     Tạo tài khoản mới.
-    - Supabase Auth tạo user trong auth.users
-    - Trigger tự động INSERT vào public.users
-    - Service cập nhật thêm full_name, role
+    - Insert profile vào bảng users
+    - Lưu password hash trong user_credentials
     """
     return await register_user(payload)
 
