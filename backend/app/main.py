@@ -1,6 +1,8 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.routers.auth_router import router as auth_router
+from app.routers.media_crud_router import router as media_crud_router
+from app.routers.user_crud_router import router as user_crud_router
 
 app = FastAPI(
     title="Memory Companion API",
@@ -19,6 +21,8 @@ app.add_middleware(
 
 # Mount các Router
 app.include_router(auth_router, prefix="/api/v1/auth", tags=["Auth"])
+app.include_router(user_crud_router, prefix="/api/v1", tags=["User CRUD"])
+app.include_router(media_crud_router, prefix="/api/v1", tags=["Media CRUD"])
 
 @app.get("/", tags=["Health"])
 async def root():
