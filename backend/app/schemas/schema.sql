@@ -31,7 +31,7 @@ CREATE TABLE "media" (
   "s3_url" varchar,
   "media_type" varchar,
   "captured_at" timestamp,
-  "ai_summary" text,
+  "notes" text,
   "uploaded_at" timestamp
 );
 

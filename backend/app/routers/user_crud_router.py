@@ -1,0 +1,94 @@
+from fastapi import APIRouter, Response, status
+
+from app.schemas.crud import (
+    FamilyCreate,
+    FamilyRead,
+    FamilyUpdate,
+    UserCreate,
+    UserRead,
+    UserRelationCreate,
+    UserRelationRead,
+    UserRelationUpdate,
+    UserUpdate,
+)
+from app.services import user_crud
+
+router = APIRouter()
+
+
+@router.post("/users", response_model=UserRead, status_code=201)
+async def create_user(payload: UserCreate):
+    return await user_crud.create_user(payload)
+
+
+@router.get("/users/{user_id}", response_model=UserRead)
+async def get_user(user_id: str):
+    return await user_crud.get_user(user_id)
+
+
+@router.get("/users", response_model=list[UserRead])
+async def list_users(limit: int = 50, offset: int = 0):
+    return await user_crud.list_users(limit=limit, offset=offset)
+
+
+@router.patch("/users/{user_id}", response_model=UserRead)
+async def update_user(user_id: str, payload: UserUpdate):
+    return await user_crud.update_user(user_id, payload)
+
+
+@router.delete("/users/{user_id}", status_code=204)
+async def delete_user(user_id: str):
+    await user_crud.delete_user(user_id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post("/families", response_model=FamilyRead, status_code=201)
+async def create_family(payload: FamilyCreate):
+    return await user_crud.create_family(payload)
+
+
+@router.get("/families/{family_id}", response_model=FamilyRead)
+async def get_family(family_id: str):
+    return await user_crud.get_family(family_id)
+
+
+@router.get("/families", response_model=list[FamilyRead])
+async def list_families(limit: int = 50, offset: int = 0):
+    return await user_crud.list_families(limit=limit, offset=offset)
+
+
+@router.patch("/families/{family_id}", response_model=FamilyRead)
+async def update_family(family_id: str, payload: FamilyUpdate):
+    return await user_crud.update_family(family_id, payload)
+
+
+@router.delete("/families/{family_id}", status_code=204)
+async def delete_family(family_id: str):
+    await user_crud.delete_family(family_id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post("/user-relations", response_model=UserRelationRead, status_code=201)
+async def create_user_relation(payload: UserRelationCreate):
+    return await user_crud.create_user_relation(payload)
+
+
+@router.get("/user-relations/{relation_id}", response_model=UserRelationRead)
+async def get_user_relation(relation_id: str):
+    return await user_crud.get_user_relation(relation_id)
+
+
+@router.get("/user-relations", response_model=list[UserRelationRead])
+async def list_user_relations(limit: int = 50, offset: int = 0):
+    return await user_crud.list_user_relations(limit=limit, offset=offset)
+
+
+@router.patch("/user-relations/{relation_id}", response_model=UserRelationRead)
+async def update_user_relation(relation_id: str, payload: UserRelationUpdate):
+    return await user_crud.update_user_relation(relation_id, payload)
+
+
+@router.delete("/user-relations/{relation_id}", status_code=204)
+async def delete_user_relation(relation_id: str):
+    await user_crud.delete_user_relation(relation_id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
