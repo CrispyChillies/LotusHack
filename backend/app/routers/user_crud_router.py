@@ -1,10 +1,11 @@
-from fastapi import APIRouter, Response, status
+from fastapi import APIRouter, Response, UploadFile, status
 from fastapi.responses import StreamingResponse
 
 from app.schemas.crud import (
     FamilyCreate,
     FamilyRead,
     FamilyUpdate,
+    VoiceUploadAndCloneResponse,
     UserCreate,
     UserRead,
     UserRelationCreate,
@@ -49,6 +50,11 @@ async def update_user_voice(user_id: str, payload: UserVoiceUpdateRequest):
 @router.post("/users/{user_id}/voice/clone", response_model=VoiceCloneResponse)
 async def clone_user_voice(user_id: str):
     return await voice_service.clone_user_voice(user_id)
+
+
+@router.post("/users/{user_id}/voice/upload-and-clone", response_model=VoiceUploadAndCloneResponse)
+async def upload_and_clone_user_voice(user_id: str, file: UploadFile):
+    return await voice_service.upload_and_clone_user_voice(user_id, file)
 
 
 @router.post("/users/{user_id}/voice/speak")

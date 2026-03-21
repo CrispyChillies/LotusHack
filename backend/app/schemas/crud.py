@@ -228,6 +228,11 @@ class VoiceCloneResponse(BaseModel):
     voice_status: str
     eleven_voice_id: str
 
+class VoiceUploadAndCloneResponse(BaseModel):
+    upload: UploadedFileResponse
+    user: UserRead
+    clone: VoiceCloneResponse
+
 
 class VoiceSpeakRequest(BaseModel):
     text: str

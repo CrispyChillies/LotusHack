@@ -11,6 +11,7 @@ from dotenv import load_dotenv
 from fastapi import HTTPException, UploadFile, status
 
 from app.schemas.crud import (
+    VoiceUploadAndCloneResponse,
     UploadedFileResponse,
     UserVoiceUpdateRequest,
     VoiceCloneResponse,
@@ -191,6 +192,21 @@ async def clone_user_voice(user_id: str) -> VoiceCloneResponse:
         user_id=updated.id,
         voice_status=updated.voice_status or "ready",
         eleven_voice_id=eleven_voice_id,
+    )
+
+
+async def upload_and_clone_user_voice(user_id: str, file: UploadFile) -> VoiceUploadAndCloneResponse:
+    upload_result = await upload_voice_file(file)
+    updated_user = await update_user_voice_sample(
+        user_id,
+        UserVoiceUpdateRequest(voice_sample_s3_url=upload_result.s3_url),
+    )
+    clone_result = await clone_user_voice(user_id)
+
+    return VoiceUploadAndCloneResponse(
+        upload=upload_result,
+        user=updated_user,
+        clone=clone_result,
     )
 
 

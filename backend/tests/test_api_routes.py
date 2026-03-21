@@ -2,6 +2,7 @@ from fastapi.testclient import TestClient
 
 from app.main import app
 from app.routers import graph_router
+from app.routers import user_crud_router
 
 
 def test_health_root():
@@ -99,3 +100,45 @@ def test_graph_visualize_page():
     assert response.status_code == 200
     assert "text/html" in response.headers.get("content-type", "")
     assert "Memory Graph Visualizer" in response.text
+
+
+def test_upload_and_clone_user_voice_endpoint(monkeypatch):
+    async def fake_upload_and_clone_user_voice(user_id: str, file):
+        return {
+            "upload": {
+                "s3_key": "uploads/voices/sample.wav",
+                "s3_url": "s3://bucket/uploads/voices/sample.wav",
+                "content_type": "audio/wav",
+                "size_bytes": 128,
+            },
+            "user": {
+                "id": "11111111-1111-1111-1111-111111111111",
+                "full_name": "Alice",
+                "email": "alice@example.com",
+                "role": "patient",
+                "persona": None,
+                "voice_sample_s3_url": "s3://bucket/uploads/voices/sample.wav",
+                "voice_status": "ready",
+                "eleven_voice_id": "voice_123",
+                "created_at": None,
+            },
+            "clone": {
+                "user_id": "11111111-1111-1111-1111-111111111111",
+                "voice_status": "ready",
+                "eleven_voice_id": "voice_123",
+            },
+        }
+
+    monkeypatch.setattr(user_crud_router.voice_service, "upload_and_clone_user_voice", fake_upload_and_clone_user_voice)
+
+    client = TestClient(app)
+    response = client.post(
+        "/api/v1/users/11111111-1111-1111-1111-111111111111/voice/upload-and-clone",
+        files={"file": ("sample.wav", b"RIFFfake", "audio/wav")},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["upload"]["s3_url"].startswith("s3://")
+    assert body["user"]["voice_sample_s3_url"] == body["upload"]["s3_url"]
+    assert body["clone"]["eleven_voice_id"] == "voice_123"
