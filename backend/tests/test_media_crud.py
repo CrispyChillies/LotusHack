@@ -115,6 +115,60 @@ async def test_update_media_without_fields_raises(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_create_media_with_upload_graph_sync_failure_raises(monkeypatch):
+    media_id = str(uuid.uuid4())
+    family_id = str(uuid.uuid4())
+    uploader_id = str(uuid.uuid4())
+
+    cursor = FakeCursor(
+        fetchone_values=[
+            {
+                "id": media_id,
+                "family_id": family_id,
+                "uploaded_by": uploader_id,
+                "s3_url": "https://mem-s3-heheboy.s3.us-east-1.amazonaws.com/media/test.jpg",
+                "media_type": "image",
+                "captured_at": None,
+                "notes": "birthday",
+                "uploaded_at": None,
+            }
+        ]
+    )
+
+    async def fake_upload_media(upload, family_id):
+        return UploadMediaResult(
+            s3_key="media/test.jpg",
+            s3_url="https://mem-s3-heheboy.s3.us-east-1.amazonaws.com/media/test.jpg",
+            media_type="image",
+            content_type="image/jpeg",
+            size_bytes=10,
+        )
+
+    class FakeUpload:
+        filename = "test.jpg"
+
+    class FailingMemoryGraphService:
+        async def sync_media_item(self, media_id: str):
+            raise RuntimeError("graph unavailable")
+
+    monkeypatch.setattr(media_crud, "_init_db", lambda: None)
+    monkeypatch.setattr(media_crud, "_connect", lambda: FakeConnection(cursor))
+    monkeypatch.setattr(media_crud, "upload_media", fake_upload_media)
+    monkeypatch.setattr(media_crud, "memory_graph_service", FailingMemoryGraphService())
+
+    with pytest.raises(HTTPException) as exc:
+        await media_crud.create_media_with_upload(
+            file=FakeUpload(),
+            family_id=family_id,
+            uploaded_by=uploader_id,
+            notes="birthday",
+        )
+
+    assert exc.value.status_code == 500
+    assert "memory graph extraction/upsert failed" in exc.value.detail
+
+
+@pytest.mark.asyncio
 async def test_delete_reminder_not_found(monkeypatch):
     cursor = FakeCursor(rowcount=0)
     monkeypatch.setattr(media_crud, "_init_db", lambda: None)

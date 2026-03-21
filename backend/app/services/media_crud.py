@@ -191,8 +191,16 @@ async def create_media_with_upload(
 
 	try:
 		await memory_graph_service.sync_media_item(str(created_media.id))
-	except Exception:
-		pass
+	except HTTPException:
+		raise
+	except Exception as exc:
+		raise HTTPException(
+			status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+			detail=(
+				"Media uploaded and saved, but memory graph extraction/upsert failed: "
+				f"{exc}"
+			),
+		)
 
 	return created_media
 
