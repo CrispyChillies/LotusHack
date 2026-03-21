@@ -1,6 +1,11 @@
 from fastapi import APIRouter
 
-from app.schemas.graph import ExtractPreviewRequest, ExtractPreviewResponse
+from app.schemas.graph import (
+    ExtractPreviewRequest,
+    ExtractPreviewResponse,
+    GraphQueryRequest,
+    GraphQueryResponse,
+)
 from app.services.extract_entity_relation import build_graphiti_compatible_payload
 from app.services.memory_graph_service import memory_graph_service
 
@@ -43,4 +48,42 @@ async def extract_preview(payload: ExtractPreviewRequest):
         model=extraction.model,
         llm_error=memory_graph_service.extractor.last_llm_error,
         graphiti_payload=graphiti_payload,
+    )
+
+
+@router.post("/query", response_model=GraphQueryResponse)
+async def graph_query(payload: GraphQueryRequest):
+    if payload.use_advanced:
+        advanced_result = await memory_graph_service.advanced_memory_query(
+            family_id=str(payload.family_id),
+            query=payload.query,
+            required_entities=payload.required_entities,
+            required_relations=payload.required_relations,
+            max_hops=payload.max_hops,
+            top_k=payload.top_k,
+        )
+        return GraphQueryResponse(
+            mode="advanced",
+            query=payload.query,
+            family_id=payload.family_id,
+            results=advanced_result.get("results", []),
+            graph_context=advanced_result.get("graph_context"),
+        )
+
+    hybrid_items = await memory_graph_service.hybrid_search(
+        family_id=str(payload.family_id),
+        query=payload.query,
+        top_k=payload.top_k,
+        node_types=payload.node_types or None,
+        relation_types=payload.relation_types or None,
+        start_time=payload.start_time,
+        end_time=payload.end_time,
+    )
+
+    return GraphQueryResponse(
+        mode="hybrid",
+        query=payload.query,
+        family_id=payload.family_id,
+        results=[item.__dict__ for item in hybrid_items],
+        graph_context=None,
     )
