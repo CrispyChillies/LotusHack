@@ -61,8 +61,10 @@ async def test_create_user_success(monkeypatch):
                 "email": "alice@example.com",
                 "role": "patient",
                 "persona": "calm",
+                "avatar_s3_url": "s3://bucket/uploads/images/alice.jpg",
                 "voice_sample_s3_url": None,
                 "voice_status": None,
+                "eleven_voice_id": None,
                 "created_at": None,
             },
         ]
@@ -77,11 +79,13 @@ async def test_create_user_success(monkeypatch):
             full_name="Alice",
             role="patient",
             persona="calm",
+            avatar_s3_url="s3://bucket/uploads/images/alice.jpg",
         )
     )
 
     assert result.email == "alice@example.com"
     assert str(result.id) == created_id
+    assert result.avatar_s3_url == "s3://bucket/uploads/images/alice.jpg"
     assert len(cursor.executed) == 2
 
 
@@ -105,3 +109,34 @@ async def test_delete_user_not_found(monkeypatch):
         await user_crud.delete_user(str(uuid.uuid4()))
 
     assert exc.value.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_update_user_allows_clearing_avatar(monkeypatch):
+    user_id = str(uuid.uuid4())
+    cursor = FakeCursor(
+        fetchone_values=[
+            {
+                "id": user_id,
+                "full_name": "Alice",
+                "email": "alice@example.com",
+                "role": "patient",
+                "persona": "calm",
+                "avatar_s3_url": None,
+                "voice_sample_s3_url": None,
+                "voice_status": None,
+                "eleven_voice_id": None,
+                "created_at": None,
+            }
+        ]
+    )
+
+    monkeypatch.setattr(user_crud, "_init_db", lambda: None)
+    monkeypatch.setattr(user_crud, "_connect", lambda: FakeConnection(cursor))
+
+    result = await user_crud.update_user(user_id, UserUpdate(avatar_s3_url=None))
+
+    assert result.avatar_s3_url is None
+    query, params = cursor.executed[0]
+    assert "avatar_s3_url = %s" in query
+    assert params == [None, user_id]

@@ -1,11 +1,15 @@
-from fastapi import APIRouter, Response, UploadFile, status
+from fastapi import APIRouter, HTTPException, Request, Response, UploadFile, status
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import StreamingResponse
+from pydantic import ValidationError
 
 from app.schemas.crud import (
     FamilyCreate,
     FamilyIdRead,
     FamilyRead,
     FamilyUpdate,
+    UserAvatarUpdateRequest,
+    UserAvatarUploadResponse,
     VoiceUploadAndCloneResponse,
     UserCreate,
     UserRead,
@@ -23,8 +27,120 @@ from app.services import voice_service
 router = APIRouter()
 
 
+def _normalize_form_value(value: object) -> object:
+    if isinstance(value, str):
+        stripped = value.strip()
+        return stripped or None
+    return value
+
+
+def _parse_bool(value: object) -> bool | None:
+    normalized = _normalize_form_value(value)
+    if normalized is None:
+        return None
+    if isinstance(normalized, bool):
+        return normalized
+    if isinstance(normalized, str):
+        lowered = normalized.lower()
+        if lowered in {"1", "true", "yes", "on"}:
+            return True
+        if lowered in {"0", "false", "no", "off"}:
+            return False
+    raise HTTPException(
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        detail="remove_avatar must be a boolean value.",
+    )
+
+
+def _as_upload_file(value: object) -> UploadFile | None:
+    if value is None:
+        return None
+    if hasattr(value, "filename") and hasattr(value, "read"):
+        return value  # type: ignore[return-value]
+    return None
+
+
+def _validate_payload(model_cls, data: dict):
+    try:
+        return model_cls.model_validate(data)
+    except ValidationError as exc:
+        raise RequestValidationError(exc.errors()) from exc
+
+
+async def _parse_create_user_request(request: Request) -> tuple[UserCreate, UploadFile | None]:
+    content_type = request.headers.get("content-type", "")
+
+    if content_type.startswith("application/json"):
+        return _validate_payload(UserCreate, await request.json()), None
+
+    if content_type.startswith("multipart/form-data"):
+        form = await request.form()
+        payload = _validate_payload(
+            UserCreate,
+            {
+                field: _normalize_form_value(form[field])
+                for field in (
+                    "email",
+                    "full_name",
+                    "role",
+                    "persona",
+                    "avatar_s3_url",
+                    "voice_sample_s3_url",
+                    "voice_status",
+                    "eleven_voice_id",
+                )
+                if field in form
+            },
+        )
+        return payload, _as_upload_file(form.get("avatar"))
+
+    raise HTTPException(
+        status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+        detail="Unsupported content type. Use application/json or multipart/form-data.",
+    )
+
+
+async def _parse_update_user_request(
+    request: Request,
+) -> tuple[UserUpdate, UploadFile | None, bool]:
+    content_type = request.headers.get("content-type", "")
+
+    if content_type.startswith("application/json"):
+        return _validate_payload(UserUpdate, await request.json()), None, False
+
+    if content_type.startswith("multipart/form-data"):
+        form = await request.form()
+        payload = _validate_payload(
+            UserUpdate,
+            {
+                field: _normalize_form_value(form[field])
+                for field in (
+                    "full_name",
+                    "role",
+                    "persona",
+                    "avatar_s3_url",
+                    "voice_sample_s3_url",
+                    "voice_status",
+                    "eleven_voice_id",
+                )
+                if field in form
+            },
+        )
+        remove_avatar = _parse_bool(form.get("remove_avatar")) or False
+        return payload, _as_upload_file(form.get("avatar")), remove_avatar
+
+    raise HTTPException(
+        status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+        detail="Unsupported content type. Use application/json or multipart/form-data.",
+    )
+
+
 @router.post("/users", response_model=UserRead, status_code=201)
-async def create_user(payload: UserCreate):
+async def create_user(request: Request):
+    payload, avatar = await _parse_create_user_request(request)
+    if avatar is not None:
+        upload = await voice_service.upload_image_file(avatar)
+        payload = payload.model_copy(update={"avatar_s3_url": upload.s3_url})
     return await user_crud.create_user(payload)
 
 
@@ -39,8 +155,30 @@ async def list_users(limit: int = 50, offset: int = 0):
 
 
 @router.patch("/users/{user_id}", response_model=UserRead)
-async def update_user(user_id: str, payload: UserUpdate):
+async def update_user(user_id: str, request: Request):
+    payload, avatar, remove_avatar = await _parse_update_user_request(request)
+    updates = payload.model_dump(exclude_unset=True)
+
+    if avatar is not None:
+        upload = await voice_service.upload_image_file(avatar)
+        updates["avatar_s3_url"] = upload.s3_url
+    elif remove_avatar:
+        updates["avatar_s3_url"] = None
+
+    payload = UserUpdate.model_validate(updates)
     return await user_crud.update_user(user_id, payload)
+
+
+@router.patch("/users/{user_id}/avatar", response_model=UserRead)
+async def update_user_avatar(user_id: str, payload: UserAvatarUpdateRequest):
+    return await user_crud.update_user_avatar(user_id, payload.avatar_s3_url)
+
+
+@router.post("/users/{user_id}/avatar/upload", response_model=UserAvatarUploadResponse)
+async def upload_user_avatar(user_id: str, file: UploadFile):
+    upload = await voice_service.upload_image_file(file)
+    user = await user_crud.update_user_avatar(user_id, upload.s3_url)
+    return UserAvatarUploadResponse(upload=upload, user=user)
 
 
 @router.patch("/users/{user_id}/voice", response_model=UserRead)

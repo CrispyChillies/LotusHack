@@ -4,6 +4,7 @@ CREATE TABLE "users" (
   "email" varchar UNIQUE,
   "role" varchar,
   "persona" text,
+  "avatar_s3_url" varchar,
   "voice_sample_s3_url" varchar,
   "voice_status" varchar,
   "eleven_voice_id" varchar,
