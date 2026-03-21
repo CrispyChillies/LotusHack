@@ -86,7 +86,7 @@ class MediaCreate(BaseModel):
     s3_url: str
     media_type: str
     captured_at: Optional[datetime] = None
-    ai_summary: Optional[str] = None
+    notes: Optional[str] = None
 
 
 class MediaUpdate(BaseModel):
@@ -95,7 +95,7 @@ class MediaUpdate(BaseModel):
     s3_url: Optional[str] = None
     media_type: Optional[str] = None
     captured_at: Optional[datetime] = None
-    ai_summary: Optional[str] = None
+    notes: Optional[str] = None
 
 
 class MediaRead(BaseModel):
@@ -105,7 +105,7 @@ class MediaRead(BaseModel):
     s3_url: Optional[str]
     media_type: Optional[str]
     captured_at: Optional[datetime]
-    ai_summary: Optional[str]
+    notes: Optional[str]
     uploaded_at: Optional[datetime]
 
     model_config = ConfigDict(from_attributes=True)

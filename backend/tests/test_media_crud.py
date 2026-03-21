@@ -64,7 +64,7 @@ async def test_create_media_with_upload_success(monkeypatch):
                 "s3_url": "https://mem-s3-heheboy.s3.us-east-1.amazonaws.com/media/test.jpg",
                 "media_type": "image",
                 "captured_at": None,
-                "ai_summary": "birthday",
+                "notes": "birthday",
                 "uploaded_at": None,
             }
         ]
@@ -90,12 +90,12 @@ async def test_create_media_with_upload_success(monkeypatch):
         file=FakeUpload(),
         family_id=family_id,
         uploaded_by=uploader_id,
-        ai_summary="birthday",
+        notes="birthday",
     )
 
     assert str(result.id) == media_id
     assert result.media_type == "image"
-    assert result.ai_summary == "birthday"
+    assert result.notes == "birthday"
 
 
 @pytest.mark.asyncio

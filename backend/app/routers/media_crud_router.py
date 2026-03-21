@@ -31,14 +31,14 @@ async def upload_media(
     file: UploadFile = File(...),
     family_id: str = Form(...),
     uploaded_by: str = Form(...),
-    ai_summary: str | None = Form(None),
+    notes: str | None = Form(None),
     captured_at: datetime | None = Form(None),
 ):
     return await media_crud.create_media_with_upload(
         file=file,
         family_id=family_id,
         uploaded_by=uploaded_by,
-        ai_summary=ai_summary,
+        notes=notes,
         captured_at=captured_at,
     )
 

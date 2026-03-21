@@ -53,9 +53,24 @@ def _init_db() -> None:
 					s3_url VARCHAR,
 					media_type VARCHAR,
 					captured_at TIMESTAMPTZ,
-					ai_summary TEXT,
+					notes TEXT,
 					uploaded_at TIMESTAMPTZ NOT NULL DEFAULT now()
 				)
+				"""
+			)
+			cur.execute("ALTER TABLE media ADD COLUMN IF NOT EXISTS notes TEXT")
+			cur.execute(
+				"""
+				DO $$
+				BEGIN
+					IF EXISTS (
+						SELECT 1
+						FROM information_schema.columns
+						WHERE table_name = 'media' AND column_name = 'ai_summary'
+					) THEN
+						EXECUTE 'UPDATE media SET notes = COALESCE(notes, ai_summary)';
+					END IF;
+				END $$;
 				"""
 			)
 			cur.execute(
@@ -131,9 +146,9 @@ async def create_media(payload: MediaCreate) -> MediaRead:
 		with conn.cursor() as cur:
 			cur.execute(
 				"""
-				INSERT INTO media (id, family_id, uploaded_by, s3_url, media_type, captured_at, ai_summary, uploaded_at)
+				INSERT INTO media (id, family_id, uploaded_by, s3_url, media_type, captured_at, notes, uploaded_at)
 				VALUES (%s, %s, %s, %s, %s, %s, %s, now())
-				RETURNING id, family_id, uploaded_by, s3_url, media_type, captured_at, ai_summary, uploaded_at
+				RETURNING id, family_id, uploaded_by, s3_url, media_type, captured_at, notes, uploaded_at
 				""",
 				(
 					str(media_id),
@@ -142,7 +157,7 @@ async def create_media(payload: MediaCreate) -> MediaRead:
 					payload.s3_url,
 					payload.media_type,
 					payload.captured_at,
-					payload.ai_summary,
+					payload.notes,
 				),
 			)
 			row = cur.fetchone()
@@ -155,7 +170,7 @@ async def create_media_with_upload(
 	family_id: str,
 	uploaded_by: str,
 	captured_at: Any = None,
-	ai_summary: str | None = None,
+	notes: str | None = None,
 ) -> MediaRead:
 	_init_db()
 	family_uuid = _as_uuid(family_id, "family id")
@@ -169,7 +184,7 @@ async def create_media_with_upload(
 			s3_url=upload_result.s3_url,
 			media_type=upload_result.media_type,
 			captured_at=captured_at,
-			ai_summary=ai_summary,
+			notes=notes,
 		)
 	)
 
@@ -181,7 +196,7 @@ async def get_media(media_id: str) -> MediaRead:
 		with conn.cursor() as cur:
 			cur.execute(
 				"""
-				SELECT id, family_id, uploaded_by, s3_url, media_type, captured_at, ai_summary, uploaded_at
+				SELECT id, family_id, uploaded_by, s3_url, media_type, captured_at, notes, uploaded_at
 				FROM media
 				WHERE id = %s
 				""",
@@ -199,7 +214,7 @@ async def list_media(limit: int = 50, offset: int = 0) -> list[MediaRead]:
 		with conn.cursor() as cur:
 			cur.execute(
 				"""
-				SELECT id, family_id, uploaded_by, s3_url, media_type, captured_at, ai_summary, uploaded_at
+				SELECT id, family_id, uploaded_by, s3_url, media_type, captured_at, notes, uploaded_at
 				FROM media
 				ORDER BY uploaded_at DESC
 				LIMIT %s OFFSET %s
@@ -228,7 +243,7 @@ async def update_media(media_id: str, payload: MediaUpdate) -> MediaRead:
 				UPDATE media
 				SET {set_clause}
 				WHERE id = %s
-				RETURNING id, family_id, uploaded_by, s3_url, media_type, captured_at, ai_summary, uploaded_at
+				RETURNING id, family_id, uploaded_by, s3_url, media_type, captured_at, notes, uploaded_at
 				""",
 				params,
 			)
