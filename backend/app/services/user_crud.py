@@ -50,10 +50,12 @@ def _init_db() -> None:
 					persona TEXT,
 					voice_sample_s3_url VARCHAR,
 					voice_status VARCHAR,
+					eleven_voice_id VARCHAR,
 					created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 				)
 				"""
 			)
+			cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS eleven_voice_id VARCHAR")
 			cur.execute(
 				"""
 				CREATE TABLE IF NOT EXISTS families (
@@ -114,9 +116,9 @@ async def create_user(payload: UserCreate) -> UserRead:
 
 				cur.execute(
 					"""
-					INSERT INTO users (id, full_name, email, role, persona, voice_sample_s3_url, voice_status, created_at)
-					VALUES (%s, %s, %s, %s, %s, %s, %s, now())
-					RETURNING id, full_name, email, role, persona, voice_sample_s3_url, voice_status, created_at
+					INSERT INTO users (id, full_name, email, role, persona, voice_sample_s3_url, voice_status, eleven_voice_id, created_at)
+					VALUES (%s, %s, %s, %s, %s, %s, %s, %s, now())
+					RETURNING id, full_name, email, role, persona, voice_sample_s3_url, voice_status, eleven_voice_id, created_at
 					""",
 					(
 						str(user_id),
@@ -126,6 +128,7 @@ async def create_user(payload: UserCreate) -> UserRead:
 						payload.persona,
 						payload.voice_sample_s3_url,
 						payload.voice_status,
+						payload.eleven_voice_id,
 					),
 				)
 				row = cur.fetchone()
@@ -149,7 +152,7 @@ async def get_user(user_id: str) -> UserRead:
 		with conn.cursor() as cur:
 			cur.execute(
 				"""
-				SELECT id, full_name, email, role, persona, voice_sample_s3_url, voice_status, created_at
+				SELECT id, full_name, email, role, persona, voice_sample_s3_url, voice_status, eleven_voice_id, created_at
 				FROM users
 				WHERE id = %s
 				""",
@@ -168,7 +171,7 @@ async def list_users(limit: int = 50, offset: int = 0) -> list[UserRead]:
 		with conn.cursor() as cur:
 			cur.execute(
 				"""
-				SELECT id, full_name, email, role, persona, voice_sample_s3_url, voice_status, created_at
+				SELECT id, full_name, email, role, persona, voice_sample_s3_url, voice_status, eleven_voice_id, created_at
 				FROM users
 				ORDER BY created_at DESC
 				LIMIT %s OFFSET %s
@@ -197,7 +200,7 @@ async def update_user(user_id: str, payload: UserUpdate) -> UserRead:
 				UPDATE users
 				SET {set_clause}
 				WHERE id = %s
-				RETURNING id, full_name, email, role, persona, voice_sample_s3_url, voice_status, created_at
+				RETURNING id, full_name, email, role, persona, voice_sample_s3_url, voice_status, eleven_voice_id, created_at
 				""",
 				params,
 			)
@@ -224,6 +227,52 @@ async def delete_user(user_id: str) -> None:
 
 	if deleted == 0:
 		_raise_not_found("User", user_id)
+
+
+async def update_user_voice_fields(
+	user_id: str,
+	*,
+	voice_sample_s3_url: str | None = None,
+	voice_status: str | None = None,
+	eleven_voice_id: str | None = None,
+	clear_eleven_voice_id: bool = False,
+) -> UserRead:
+	_init_db()
+	try:
+		user_uuid = str(UUID(user_id))
+	except ValueError:
+		raise HTTPException(status_code=400, detail="Invalid user id.")
+
+	values: dict[str, Any] = {}
+	if voice_sample_s3_url is not None:
+		values["voice_sample_s3_url"] = voice_sample_s3_url
+	if voice_status is not None:
+		values["voice_status"] = voice_status
+	if eleven_voice_id is not None:
+		values["eleven_voice_id"] = eleven_voice_id
+	elif clear_eleven_voice_id:
+		values["eleven_voice_id"] = None
+
+	set_clause, params = _build_update_clause(values)
+	params.append(user_uuid)
+
+	with _connect() as conn:
+		with conn.cursor() as cur:
+			cur.execute(
+				f"""
+				UPDATE users
+				SET {set_clause}
+				WHERE id = %s
+				RETURNING id, full_name, email, role, persona, voice_sample_s3_url, voice_status, eleven_voice_id, created_at
+				""",
+				params,
+			)
+			row = cur.fetchone()
+		conn.commit()
+
+	if not row:
+		_raise_not_found("User", user_id)
+	return UserRead(**row)
 
 
 async def create_family(payload: FamilyCreate) -> FamilyRead:

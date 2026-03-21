@@ -6,6 +6,7 @@ CREATE TABLE "users" (
   "persona" text,
   "voice_sample_s3_url" varchar,
   "voice_status" varchar,
+  "eleven_voice_id" varchar,
   "created_at" timestamp
 );
 
@@ -83,7 +84,7 @@ ALTER TABLE "media" ADD FOREIGN KEY ("uploaded_by") REFERENCES "users" ("id") DE
 
 ALTER TABLE "memories" ADD FOREIGN KEY ("family_id") REFERENCES "families" ("id") DEFERRABLE INITIALLY IMMEDIATE;
 
-ALTER TABLE "memory_media" ADD FOREIGN KEY ("memory_  id") REFERENCES "memories" ("id") DEFERRABLE INITIALLY IMMEDIATE;
+ALTER TABLE "memory_media" ADD FOREIGN KEY ("memory_id") REFERENCES "memories" ("id") DEFERRABLE INITIALLY IMMEDIATE;
 
 ALTER TABLE "memory_media" ADD FOREIGN KEY ("media_id") REFERENCES "media" ("id") DEFERRABLE INITIALLY IMMEDIATE;
 

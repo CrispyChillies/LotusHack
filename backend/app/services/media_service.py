@@ -72,6 +72,15 @@ class UploadMediaResult:
 	size_bytes: int
 
 
+@dataclass(frozen=True)
+class PresignedUploadResult:
+	upload_url: str
+	s3_key: str
+	s3_url: str
+	method: str
+	expires_in: int
+
+
 def _get_env(name: str) -> str:
 	value = os.getenv(name)
 	if not value:
@@ -205,6 +214,13 @@ def _safe_extension(upload: UploadFile) -> str:
 	return ".bin"
 
 
+def _safe_suffix_from_filename(filename: str) -> str:
+	suffix = Path(filename).suffix.lower().strip()
+	if suffix and len(suffix) <= 10:
+		return suffix
+	return ""
+
+
 def _validate_upload(upload: UploadFile) -> tuple[str, int]:
 	content_type = (upload.content_type or "").lower().strip()
 	if content_type not in _ALLOWED_MIME_TYPES:
@@ -239,6 +255,74 @@ def _build_object_key(family_id: str, media_type: str, extension: str) -> str:
 	day = now.strftime("%d")
 	unique_id = uuid.uuid4().hex
 	return f"media/{family_id}/{media_type}/{year}/{month}/{day}/{unique_id}{extension}"
+
+
+def generate_upload_url(
+	*,
+	prefix: str,
+	file_name: str,
+	content_type: str,
+	expires_in: int | None = None,
+) -> PresignedUploadResult:
+	"""Generate a presigned PUT URL and final object URL for direct client upload."""
+	clean_prefix = "/".join(part for part in prefix.split("/") if part).strip()
+	if not clean_prefix:
+		raise HTTPException(
+			status_code=status.HTTP_400_BAD_REQUEST,
+			detail="Invalid upload prefix.",
+		)
+
+	if not file_name.strip():
+		raise HTTPException(
+			status_code=status.HTTP_400_BAD_REQUEST,
+			detail="file_name is required.",
+		)
+
+	if not content_type.strip():
+		raise HTTPException(
+			status_code=status.HTTP_400_BAD_REQUEST,
+			detail="content_type is required.",
+		)
+
+	suffix = _safe_suffix_from_filename(file_name)
+	now = datetime.now(timezone.utc)
+	s3_key = (
+		f"{clean_prefix}/{now.strftime('%Y')}/{now.strftime('%m')}/{now.strftime('%d')}/"
+		f"{uuid.uuid4().hex}{suffix}"
+	)
+	bucket = _get_bucket_name()
+
+	expiration = expires_in if expires_in is not None else _get_presign_expire_seconds()
+	if expiration <= 0:
+		raise HTTPException(
+			status_code=status.HTTP_400_BAD_REQUEST,
+			detail="Presigned URL expiration must be greater than 0.",
+		)
+
+	try:
+		client = _get_s3_client()
+		upload_url = client.generate_presigned_url(
+			"put_object",
+			Params={
+				"Bucket": bucket,
+				"Key": s3_key,
+				"ContentType": content_type,
+			},
+			ExpiresIn=min(expiration, 7 * 24 * 60 * 60),
+		)
+	except (ClientError, BotoCoreError) as exc:
+		raise HTTPException(
+			status_code=status.HTTP_502_BAD_GATEWAY,
+			detail=f"Failed to generate upload URL: {exc}",
+		)
+
+	return PresignedUploadResult(
+		upload_url=upload_url,
+		s3_key=s3_key,
+		s3_url=_public_s3_url(bucket=bucket, key=s3_key),
+		method="PUT",
+		expires_in=min(expiration, 7 * 24 * 60 * 60),
+	)
 
 
 def _upload_to_s3_sync(upload: UploadFile, key: str, content_type: str) -> None:

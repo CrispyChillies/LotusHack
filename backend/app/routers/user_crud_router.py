@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Response, status
+from fastapi.responses import StreamingResponse
 
 from app.schemas.crud import (
     FamilyCreate,
@@ -9,9 +10,13 @@ from app.schemas.crud import (
     UserRelationCreate,
     UserRelationRead,
     UserRelationUpdate,
+    UserVoiceUpdateRequest,
     UserUpdate,
+    VoiceCloneResponse,
+    VoiceSpeakRequest,
 )
 from app.services import user_crud
+from app.services import voice_service
 
 router = APIRouter()
 
@@ -34,6 +39,26 @@ async def list_users(limit: int = 50, offset: int = 0):
 @router.patch("/users/{user_id}", response_model=UserRead)
 async def update_user(user_id: str, payload: UserUpdate):
     return await user_crud.update_user(user_id, payload)
+
+
+@router.patch("/users/{user_id}/voice", response_model=UserRead)
+async def update_user_voice(user_id: str, payload: UserVoiceUpdateRequest):
+    return await voice_service.update_user_voice_sample(user_id, payload)
+
+
+@router.post("/users/{user_id}/voice/clone", response_model=VoiceCloneResponse)
+async def clone_user_voice(user_id: str):
+    return await voice_service.clone_user_voice(user_id)
+
+
+@router.post("/users/{user_id}/voice/speak")
+async def speak_with_user_voice(user_id: str, payload: VoiceSpeakRequest):
+    tts_audio = await voice_service.speak_with_user_voice(user_id, payload)
+    return StreamingResponse(
+        content=iter([tts_audio.audio_bytes]),
+        media_type=tts_audio.content_type,
+        headers={"Content-Disposition": 'inline; filename="tts.mp3"'},
+    )
 
 
 @router.delete("/users/{user_id}", status_code=204)

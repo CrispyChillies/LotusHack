@@ -14,6 +14,7 @@ class UserCreate(BaseModel):
     persona: Optional[str] = None
     voice_sample_s3_url: Optional[str] = None
     voice_status: Optional[str] = None
+    eleven_voice_id: Optional[str] = None
 
 
 class UserUpdate(BaseModel):
@@ -22,6 +23,7 @@ class UserUpdate(BaseModel):
     persona: Optional[str] = None
     voice_sample_s3_url: Optional[str] = None
     voice_status: Optional[str] = None
+    eleven_voice_id: Optional[str] = None
 
 
 class UserRead(BaseModel):
@@ -32,6 +34,7 @@ class UserRead(BaseModel):
     persona: Optional[str]
     voice_sample_s3_url: Optional[str]
     voice_status: Optional[str]
+    eleven_voice_id: Optional[str]
     created_at: Optional[datetime]
 
     model_config = ConfigDict(from_attributes=True)
@@ -194,3 +197,31 @@ class MemoryStoryAudioRead(BaseModel):
     created_at: Optional[datetime]
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class UploadUrlRequest(BaseModel):
+    file_name: str
+    content_type: str
+
+
+class UploadUrlResponse(BaseModel):
+    upload_url: str
+    s3_key: str
+    s3_url: str
+    method: str
+    expires_in: int
+
+
+class UserVoiceUpdateRequest(BaseModel):
+    voice_sample_s3_url: str
+
+
+class VoiceCloneResponse(BaseModel):
+    user_id: UUID
+    voice_status: str
+    eleven_voice_id: str
+
+
+class VoiceSpeakRequest(BaseModel):
+    text: str
+    model_id: str = "eleven_multilingual_v2"
