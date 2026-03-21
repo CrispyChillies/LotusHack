@@ -25,17 +25,37 @@ def _is_truthy(value: str | None) -> bool:
         return False
     return value.strip().lower() in {"1", "true", "yes", "on"}
 
+
+def _cors_origins_from_env() -> list[str]:
+    raw = os.getenv("CORS_ALLOW_ORIGINS", "")
+    if not raw.strip():
+        # Safe local defaults for Vite dev and local API docs usage.
+        return [
+            "http://127.0.0.1:5173",
+            "http://localhost:5173",
+            "http://127.0.0.1:3000",
+            "http://localhost:3000",
+        ]
+    return [origin.strip() for origin in raw.split(",") if origin.strip()]
+
 app = FastAPI(
     title="Memory Companion API",
     description="Backend API cho ứng dụng Memory Companion hỗ trợ người mất trí nhớ.",
     version="1.0.0"
 )
 
-# Cấu hình CORS (Cho phép frontend gọi API)
+# Cấu hình CORS
+# NOTE: Do not use allow_origins=["*"] with allow_credentials=True.
+# Browsers reject credentialed cross-origin requests in that case.
+cors_allow_origins = _cors_origins_from_env()
+cors_allow_origin_regex = os.getenv("CORS_ALLOW_ORIGIN_REGEX")
+allow_credentials = _is_truthy(os.getenv("CORS_ALLOW_CREDENTIALS", "true"))
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Trong production nên sửa lại domain cụ thể
-    allow_credentials=True,
+    allow_origins=cors_allow_origins,
+    allow_origin_regex=cors_allow_origin_regex,
+    allow_credentials=allow_credentials,
     allow_methods=["*"],
     allow_headers=["*"],
 )
