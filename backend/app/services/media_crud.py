@@ -24,6 +24,7 @@ from app.schemas.crud import (
 	ReminderRead,
 	ReminderUpdate,
 )
+from app.services.memory_graph_service import memory_graph_service
 from app.services.media_service import upload_media
 
 load_dotenv()
@@ -177,7 +178,7 @@ async def create_media_with_upload(
 	uploader_uuid = _as_uuid(uploaded_by, "uploaded_by")
 
 	upload_result = await upload_media(upload=file, family_id=family_uuid)
-	return await create_media(
+	created_media = await create_media(
 		MediaCreate(
 			family_id=UUID(family_uuid),
 			uploaded_by=UUID(uploader_uuid),
@@ -187,6 +188,13 @@ async def create_media_with_upload(
 			notes=notes,
 		)
 	)
+
+	try:
+		await memory_graph_service.sync_media_item(str(created_media.id))
+	except Exception:
+		pass
+
+	return created_media
 
 
 async def get_media(media_id: str) -> MediaRead:

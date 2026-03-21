@@ -86,6 +86,12 @@ async def test_create_media_with_upload_success(monkeypatch):
     monkeypatch.setattr(media_crud, "_connect", lambda: FakeConnection(cursor))
     monkeypatch.setattr(media_crud, "upload_media", fake_upload_media)
 
+    class FakeMemoryGraphService:
+        async def sync_media_item(self, media_id: str):
+            return {"processed": 1, "nodes": 2, "edges": 2, "documents": 1}
+
+    monkeypatch.setattr(media_crud, "memory_graph_service", FakeMemoryGraphService())
+
     result = await media_crud.create_media_with_upload(
         file=FakeUpload(),
         family_id=family_id,

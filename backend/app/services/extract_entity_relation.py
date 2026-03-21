@@ -29,6 +29,40 @@ _ALLOWED_RELATIONS = {
     "attended",
 }
 
+_PERSON_STOPWORDS = {
+    "this",
+    "that",
+    "these",
+    "those",
+    "image",
+    "photo",
+    "picture",
+}
+
+_KINSHIP_TERMS = {
+    "grandpa": "Grandpa",
+    "grandfather": "Grandpa",
+    "grandma": "Grandma",
+    "grandmother": "Grandma",
+    "dad": "Dad",
+    "father": "Father",
+    "mom": "Mom",
+    "mother": "Mother",
+    "brother": "Brother",
+    "sister": "Sister",
+    "son": "Son",
+    "daughter": "Daughter",
+}
+
+_PLACE_TERMS = {
+    "park": "park",
+    "beach": "beach",
+    "home": "home",
+    "house": "house",
+    "school": "school",
+    "hospital": "hospital",
+}
+
 
 @dataclass(frozen=True)
 class EntityNode:
@@ -68,7 +102,12 @@ class EntityRelationExtractor:
 
     def __init__(self) -> None:
         self._api_key = os.getenv("OPENAI_API_KEY")
-        self._llm_model = os.getenv("OPENAI_LLM_MODEL", "gpt-4.1-mini")
+        self._llm_model = os.getenv("OPENAI_LLM_MODEL", "gpt-4o-mini")
+        self._last_llm_error: str | None = None
+
+    @property
+    def last_llm_error(self) -> str | None:
+        return self._last_llm_error
 
     def extract_from_memory_item(
         self,
@@ -78,6 +117,10 @@ class EntityRelationExtractor:
         existing_entities: list[str] | None = None,
         context: dict[str, Any] | None = None,
     ) -> ExtractionResult:
+        self._api_key = os.getenv("OPENAI_API_KEY")
+        self._llm_model = os.getenv("OPENAI_LLM_MODEL", self._llm_model)
+        self._last_llm_error = None
+
         if self._api_key:
             llm_result = self._extract_with_llm(
                 note_text=note_text,
@@ -101,6 +144,7 @@ class EntityRelationExtractor:
         try:
             from openai import OpenAI
         except Exception:
+            self._last_llm_error = "OpenAI SDK is not installed in runtime environment."
             return None
 
         client = OpenAI(api_key=self._api_key)
@@ -139,27 +183,53 @@ class EntityRelationExtractor:
             "output_schema": schema_description,
         }
 
-        content: list[dict[str, Any]] = [
-            {"type": "text", "text": json.dumps(user_payload, ensure_ascii=False)}
-        ]
-        if image_url:
-            content.append({"type": "image_url", "image_url": {"url": image_url}})
+        llm_errors: list[str] = []
 
         try:
+            user_content: list[dict[str, Any]] = [
+                {"type": "input_text", "text": json.dumps(user_payload, ensure_ascii=False)}
+            ]
+            if image_url:
+                user_content.append({"type": "input_image", "image_url": image_url})
+
+            response = client.responses.create(
+                model=self._llm_model,
+                temperature=0,
+                input=[
+                    {
+                        "role": "system",
+                        "content": [{"type": "input_text", "text": system_prompt}],
+                    },
+                    {"role": "user", "content": user_content},
+                ],
+            )
+            raw = (response.output_text or "").strip() or "{}"
+            data = json.loads(raw)
+            return self._normalize_extraction_payload(data, model=self._llm_model)
+        except Exception as exc:
+            llm_errors.append(f"responses_api_failed: {exc}")
+
+        try:
+            text_only_payload = dict(user_payload)
+            if image_url:
+                text_only_payload["image_url"] = image_url
             response = client.chat.completions.create(
                 model=self._llm_model,
                 temperature=0,
                 response_format={"type": "json_object"},
                 messages=[
                     {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": content},
+                    {"role": "user", "content": json.dumps(text_only_payload, ensure_ascii=False)},
                 ],
             )
             raw = response.choices[0].message.content or "{}"
             data = json.loads(raw)
             return self._normalize_extraction_payload(data, model=self._llm_model)
-        except Exception:
-            return None
+        except Exception as exc:
+            llm_errors.append(f"chat_completions_failed: {exc}")
+
+        self._last_llm_error = " | ".join(llm_errors)[:1000] if llm_errors else "Unknown LLM extraction error"
+        return None
 
     def _extract_with_rules(self, *, note_text: str, existing_entities: list[str]) -> ExtractionResult:
         text = note_text.strip()
@@ -169,7 +239,7 @@ class EntityRelationExtractor:
                 edges=[],
                 summary="",
                 extracted_at=datetime.now(timezone.utc),
-                model="rules-v1",
+                model="rules-v2",
             )
 
         person_candidates = re.findall(r"\b[A-Z][a-z]{1,30}\b", text)
@@ -183,6 +253,8 @@ class EntityRelationExtractor:
         event_keywords = {
             "birthday": "birthday",
             "camping": "camping trip",
+            "play": "play",
+            "playing": "play",
             "wedding": "wedding",
             "graduation": "graduation",
             "party": "party",
@@ -199,40 +271,75 @@ class EntityRelationExtractor:
             seen.add(key)
             nodes.append(EntityNode(node_type=node_type, name=name.strip(), confidence=confidence, attributes=None))
 
-        for person in person_candidates:
-            merged = self._merge_with_existing(person, existing_entities)
-            add_node("Person", merged, 0.65)
-
         lower = text.lower()
+        for person in person_candidates:
+            if self._canonical_name(person) in _PERSON_STOPWORDS:
+                continue
+            merged = self._merge_with_existing(person, existing_entities)
+            add_node("Person", merged, 0.7)
+
+        for kinship_term, display_name in _KINSHIP_TERMS.items():
+            if re.search(rf"\b{re.escape(kinship_term)}\b", lower):
+                merged = self._merge_with_existing(display_name, existing_entities)
+                add_node("Person", merged, 0.78)
+
         for kw, label in event_keywords.items():
             if kw in lower:
                 add_node("Event", label, 0.75)
         for kw, label in emotion_keywords.items():
             if kw in lower:
                 add_node("Emotion", label, 0.8)
+        for kw, label in _PLACE_TERMS.items():
+            if re.search(rf"\b{re.escape(kw)}\b", lower):
+                add_node("Place", label, 0.74)
 
         edges: list[RelationEdge] = []
         persons = [n.name for n in nodes if n.node_type == "Person"]
         events = [n.name for n in nodes if n.node_type == "Event"]
         emotions = [n.name for n in nodes if n.node_type == "Emotion"]
+        places = [n.name for n in nodes if n.node_type == "Place"]
 
-        if persons and events:
+        if len(persons) >= 2:
             edges.append(
                 RelationEdge(
                     source_name=persons[0],
-                    target_name=events[0],
-                    relation_type="attended",
-                    confidence=0.6,
+                    target_name=persons[1],
+                    relation_type="related_to",
+                    confidence=0.62,
                     evidence=text[:140],
                 )
             )
+
+        if persons and events:
+            for person_name in persons[:3]:
+                edges.append(
+                    RelationEdge(
+                        source_name=person_name,
+                        target_name=events[0],
+                        relation_type="attended",
+                        confidence=0.66,
+                        evidence=text[:140],
+                    )
+                )
+
+        if events and places:
+            edges.append(
+                RelationEdge(
+                    source_name=events[0],
+                    target_name=places[0],
+                    relation_type="happened_at",
+                    confidence=0.68,
+                    evidence=text[:140],
+                )
+            )
+
         if persons and emotions:
             edges.append(
                 RelationEdge(
                     source_name=persons[0],
                     target_name=emotions[0],
                     relation_type="feels",
-                    confidence=0.65,
+                    confidence=0.67,
                     evidence=text[:140],
                 )
             )
@@ -243,7 +350,7 @@ class EntityRelationExtractor:
             edges=edges,
             summary=summary,
             extracted_at=datetime.now(timezone.utc),
-            model="rules-v1",
+            model="rules-v2",
         )
 
     def _normalize_extraction_payload(self, payload: dict[str, Any], *, model: str) -> ExtractionResult:
