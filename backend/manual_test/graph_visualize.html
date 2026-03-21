@@ -1,0 +1,426 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Memory Graph Visualize</title>
+  <style>
+    body { font-family: Arial, sans-serif; background: #f8fafc; color: #0f172a; margin: 24px; }
+    h1 { margin: 0 0 12px; }
+    .card { background: #fff; border: 1px solid #e2e8f0; border-radius: 10px; padding: 16px; margin-bottom: 14px; }
+    label { display: block; font-size: 13px; color: #334155; margin: 8px 0 4px; }
+    input, textarea, button { width: 100%; box-sizing: border-box; border: 1px solid #cbd5e1; border-radius: 8px; padding: 10px; }
+    textarea { min-height: 90px; font-family: Consolas, monospace; }
+    button { margin-top: 10px; cursor: pointer; font-weight: 600; background: #0f172a; color: #fff; }
+    .row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .tag-wrap { display: flex; flex-wrap: wrap; gap: 8px; }
+    .tag { padding: 6px 10px; border-radius: 999px; font-size: 12px; border: 1px solid #cbd5e1; background: #eef2ff; }
+    .node-person { background: #dbeafe; border-color: #93c5fd; }
+    .node-event { background: #dcfce7; border-color: #86efac; }
+    .node-place { background: #fef9c3; border-color: #fde047; }
+    .node-object { background: #fae8ff; border-color: #d8b4fe; }
+    .node-emotion { background: #fee2e2; border-color: #fca5a5; }
+    .edge-tag { background: #f1f5f9; border-color: #cbd5e1; }
+    .log { background: #0b1020; color: #e2e8f0; border-radius: 8px; padding: 10px; font-family: Consolas, monospace; max-height: 280px; overflow: auto; font-size: 12px; }
+    .muted { color: #64748b; font-size: 12px; }
+    .graph-wrap { border: 1px solid #e2e8f0; border-radius: 10px; background: #f8fafc; overflow: hidden; }
+    #graphSvg { width: 100%; height: 560px; display: block; }
+    .legend { display: flex; flex-wrap: wrap; gap: 10px; margin: 10px 0 0; }
+    .legend-item { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: #334155; }
+    .legend-dot { width: 10px; height: 10px; border-radius: 999px; display: inline-block; }
+  </style>
+</head>
+<body>
+  <h1>Memory Graph Visualizer</h1>
+  <p class="muted">Graph visualization from <code>/api/v1/graph/query</code> (advanced mode).</p>
+
+  <div class="card">
+    <div class="row">
+      <div>
+        <label>API Base</label>
+        <input id="apiBase" value="http://127.0.0.1:8000/api/v1" />
+      </div>
+      <div>
+        <label>Bearer Token (optional)</label>
+        <input id="token" placeholder="leave empty if not required" />
+      </div>
+    </div>
+
+    <div class="row">
+      <div>
+        <label>Family ID</label>
+        <input id="familyId" placeholder="UUID" />
+      </div>
+      <div>
+        <label>Top K</label>
+        <input id="topK" type="number" min="1" max="100" value="10" />
+      </div>
+    </div>
+    <button id="latestFamilyBtn" type="button">Use Latest Family ID</button>
+
+    <label>Query</label>
+    <textarea id="query">What memories involve Anna and grandpa at the park?</textarea>
+
+    <div class="row">
+      <div>
+        <label>Required Entities (comma-separated)</label>
+        <input id="requiredEntities" value="Anna, Grandpa, park" />
+      </div>
+      <div>
+        <label>Required Relations (comma-separated)</label>
+        <input id="requiredRelations" value="attended, happened_at" />
+      </div>
+    </div>
+
+    <button id="runBtn">Run Graph Query</button>
+  </div>
+
+  <div class="card">
+    <h3>Graph View</h3>
+    <div class="graph-wrap">
+      <svg id="graphSvg" viewBox="0 0 1200 560" preserveAspectRatio="xMidYMid meet"></svg>
+    </div>
+    <div class="legend">
+      <span class="legend-item"><span class="legend-dot" style="background:#3b82f6"></span>Person</span>
+      <span class="legend-item"><span class="legend-dot" style="background:#10b981"></span>Event</span>
+      <span class="legend-item"><span class="legend-dot" style="background:#f59e0b"></span>Place</span>
+      <span class="legend-item"><span class="legend-dot" style="background:#8b5cf6"></span>Object</span>
+      <span class="legend-item"><span class="legend-dot" style="background:#ef4444"></span>Emotion</span>
+      <span class="legend-item"><span class="legend-dot" style="background:#64748b"></span>Other</span>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>Top Memory Hits</h3>
+    <div id="results" class="tag-wrap"></div>
+  </div>
+
+  <div class="card">
+    <h3>Raw Response</h3>
+    <pre id="raw" class="log"></pre>
+  </div>
+
+  <script>
+    const graphSvg = document.getElementById('graphSvg');
+    const resultsEl = document.getElementById('results');
+    const rawEl = document.getElementById('raw');
+
+    function splitCSV(value) {
+      return value.split(',').map(x => x.trim()).filter(Boolean);
+    }
+
+    function authHeaders(json = true) {
+      const headers = {};
+      if (json) headers['Content-Type'] = 'application/json';
+      const token = document.getElementById('token').value.trim();
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+      return headers;
+    }
+
+    function nodeClass(nodeType) {
+      const t = (nodeType || '').toLowerCase();
+      if (t === 'person') return 'node-person';
+      if (t === 'event') return 'node-event';
+      if (t === 'place') return 'node-place';
+      if (t === 'object') return 'node-object';
+      if (t === 'emotion') return 'node-emotion';
+      return '';
+    }
+
+    function nodeColor(nodeType) {
+      const t = (nodeType || '').toLowerCase();
+      if (t === 'person') return '#3b82f6';
+      if (t === 'event') return '#10b981';
+      if (t === 'place') return '#f59e0b';
+      if (t === 'object') return '#8b5cf6';
+      if (t === 'emotion') return '#ef4444';
+      return '#64748b';
+    }
+
+    function shortLabel(value, max = 18) {
+      if (!value) return 'Unknown';
+      return value.length > max ? `${value.slice(0, max - 1)}…` : value;
+    }
+
+    function escapeXml(value) {
+      return String(value)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+    }
+
+    function resolveKey(node) {
+      return node.id || node.node_id || node.display_name || node.name;
+    }
+
+    function renderGraph(nodes = [], edges = []) {
+      const width = 1200;
+      const height = 560;
+
+      if (!nodes.length) {
+        graphSvg.innerHTML = '<text x="50%" y="50%" text-anchor="middle" fill="#64748b" font-size="15">No graph nodes for this query.</text>';
+        return;
+      }
+
+      const normalizedNodes = [];
+      const nodeByKey = new Map();
+
+      nodes.forEach((node, index) => {
+        const key = resolveKey(node) || `node-${index}`;
+        const normalized = {
+          key,
+          id: node.id || key,
+          label: node.display_name || node.name || node.id || key,
+          type: (node.node_type || 'other').toLowerCase(),
+          degree: 0,
+          x: width / 2 + (Math.random() - 0.5) * 220,
+          y: height / 2 + (Math.random() - 0.5) * 220,
+          vx: 0,
+          vy: 0,
+        };
+        normalizedNodes.push(normalized);
+        nodeByKey.set(key, normalized);
+      });
+
+      const normalizedEdges = [];
+
+      edges.forEach((edge) => {
+        const sourceRaw = edge.source_node;
+        const targetRaw = edge.target_node;
+        let sourceNode = nodeByKey.get(sourceRaw);
+        let targetNode = nodeByKey.get(targetRaw);
+
+        if (!sourceNode && sourceRaw) {
+          sourceNode = {
+            key: sourceRaw,
+            id: sourceRaw,
+            label: sourceRaw,
+            type: 'other',
+            degree: 0,
+            x: width / 2 + (Math.random() - 0.5) * 220,
+            y: height / 2 + (Math.random() - 0.5) * 220,
+            vx: 0,
+            vy: 0,
+          };
+          normalizedNodes.push(sourceNode);
+          nodeByKey.set(sourceRaw, sourceNode);
+        }
+
+        if (!targetNode && targetRaw) {
+          targetNode = {
+            key: targetRaw,
+            id: targetRaw,
+            label: targetRaw,
+            type: 'other',
+            degree: 0,
+            x: width / 2 + (Math.random() - 0.5) * 220,
+            y: height / 2 + (Math.random() - 0.5) * 220,
+            vx: 0,
+            vy: 0,
+          };
+          normalizedNodes.push(targetNode);
+          nodeByKey.set(targetRaw, targetNode);
+        }
+
+        if (!sourceNode || !targetNode) return;
+
+        sourceNode.degree += 1;
+        targetNode.degree += 1;
+
+        normalizedEdges.push({
+          source: sourceNode,
+          target: targetNode,
+          relation: edge.relation_type || 'related_to'
+        });
+      });
+
+      const repulsion = 7000;
+      const springLength = 160;
+      const springStrength = 0.01;
+      const damping = 0.88;
+
+      for (let step = 0; step < 220; step++) {
+        for (let i = 0; i < normalizedNodes.length; i++) {
+          const a = normalizedNodes[i];
+          for (let j = i + 1; j < normalizedNodes.length; j++) {
+            const b = normalizedNodes[j];
+            let dx = a.x - b.x;
+            let dy = a.y - b.y;
+            let distSq = dx * dx + dy * dy;
+            if (distSq < 1) distSq = 1;
+            const dist = Math.sqrt(distSq);
+            const force = repulsion / distSq;
+            const fx = (dx / dist) * force;
+            const fy = (dy / dist) * force;
+            a.vx += fx;
+            a.vy += fy;
+            b.vx -= fx;
+            b.vy -= fy;
+          }
+        }
+
+        for (const edge of normalizedEdges) {
+          const dx = edge.target.x - edge.source.x;
+          const dy = edge.target.y - edge.source.y;
+          const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+          const stretch = dist - springLength;
+          const force = springStrength * stretch;
+          const fx = (dx / dist) * force;
+          const fy = (dy / dist) * force;
+          edge.source.vx += fx;
+          edge.source.vy += fy;
+          edge.target.vx -= fx;
+          edge.target.vy -= fy;
+        }
+
+        for (const node of normalizedNodes) {
+          const centerPull = 0.0008;
+          node.vx += (width / 2 - node.x) * centerPull;
+          node.vy += (height / 2 - node.y) * centerPull;
+
+          node.vx *= damping;
+          node.vy *= damping;
+
+          node.x += node.vx;
+          node.y += node.vy;
+
+          const padding = 35;
+          if (node.x < padding) { node.x = padding; node.vx *= -0.5; }
+          if (node.x > width - padding) { node.x = width - padding; node.vx *= -0.5; }
+          if (node.y < padding) { node.y = padding; node.vy *= -0.5; }
+          if (node.y > height - padding) { node.y = height - padding; node.vy *= -0.5; }
+        }
+      }
+
+      const defs = `
+        <defs>
+          <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M 0 0 L 10 5 L 0 10 z" fill="#334155"></path>
+          </marker>
+        </defs>
+      `;
+
+      const edgeMarkup = normalizedEdges.map((edge) => {
+        const sx = edge.source.x;
+        const sy = edge.source.y;
+        const tx = edge.target.x;
+        const ty = edge.target.y;
+        const mx = (sx + tx) / 2;
+        const my = (sy + ty) / 2;
+        return `
+          <g>
+            <line x1="${sx}" y1="${sy}" x2="${tx}" y2="${ty}" stroke="#334155" stroke-width="2" marker-end="url(#arrow)" opacity="0.85"></line>
+            <text x="${mx}" y="${my - 6}" fill="#334155" font-size="11" text-anchor="middle">${escapeXml(shortLabel(edge.relation, 22))}</text>
+          </g>
+        `;
+      }).join('');
+
+      const nodeMarkup = normalizedNodes.map((node) => {
+        const radius = Math.max(20, Math.min(42, 20 + node.degree * 2.2));
+        const label = escapeXml(shortLabel(node.label, 18));
+        const title = `${escapeXml(node.label)} (${escapeXml(node.type)})`;
+        return `
+          <g>
+            <circle cx="${node.x}" cy="${node.y}" r="${radius}" fill="${nodeColor(node.type)}" stroke="#ffffff" stroke-width="2.5">
+              <title>${title}</title>
+            </circle>
+            <text x="${node.x}" y="${node.y + 4}" fill="#ffffff" font-size="11" text-anchor="middle" font-weight="600">${label}</text>
+          </g>
+        `;
+      }).join('');
+
+      graphSvg.innerHTML = `${defs}${edgeMarkup}${nodeMarkup}`;
+    }
+
+    function renderTags(target, items, mapper, defaultText) {
+      target.innerHTML = '';
+      if (!items || !items.length) {
+        const empty = document.createElement('span');
+        empty.className = 'muted';
+        empty.textContent = defaultText;
+        target.appendChild(empty);
+        return;
+      }
+      items.forEach(item => {
+        const tag = document.createElement('span');
+        const mapped = mapper(item);
+        tag.className = `tag ${mapped.className || ''}`.trim();
+        tag.textContent = mapped.text;
+        target.appendChild(tag);
+      });
+    }
+
+    document.getElementById('runBtn').addEventListener('click', async () => {
+      graphSvg.innerHTML = '';
+      resultsEl.innerHTML = '';
+      rawEl.textContent = 'Loading...';
+
+      const apiBase = document.getElementById('apiBase').value.replace(/\/$/, '');
+      const familyId = document.getElementById('familyId').value.trim();
+      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+      if (!familyId) {
+        rawEl.textContent = 'ERROR: family_id is required. Paste it manually or click "Use Latest Family ID".';
+        return;
+      }
+      if (!uuidRegex.test(familyId)) {
+        rawEl.textContent = 'ERROR: family_id must be a valid UUID.';
+        return;
+      }
+
+      const payload = {
+        family_id: familyId,
+        query: document.getElementById('query').value.trim(),
+        top_k: Number(document.getElementById('topK').value || 10),
+        use_advanced: true,
+        required_entities: splitCSV(document.getElementById('requiredEntities').value),
+        required_relations: splitCSV(document.getElementById('requiredRelations').value),
+        max_hops: 2
+      };
+
+      try {
+        const response = await fetch(`${apiBase}/graph/query`, {
+          method: 'POST',
+          headers: authHeaders(true),
+          body: JSON.stringify(payload)
+        });
+        const body = await response.json();
+        if (!response.ok) throw new Error(JSON.stringify(body));
+
+        const graphContext = body.graph_context || { nodes: [], edges: [] };
+
+        renderGraph(graphContext.nodes || [], graphContext.edges || []);
+
+        renderTags(resultsEl, body.results || [], result => ({
+          text: `${result.source_type || 'memory'} | score=${(result.final_score ?? 0).toFixed(3)} | ${(result.content || '').slice(0, 80)}`,
+          className: 'edge-tag'
+        }), 'No memory hits');
+
+        rawEl.textContent = JSON.stringify(body, null, 2);
+      } catch (err) {
+        graphSvg.innerHTML = '';
+        rawEl.textContent = `ERROR: ${String(err)}`;
+      }
+    });
+
+    document.getElementById('latestFamilyBtn').addEventListener('click', async () => {
+      const apiBase = document.getElementById('apiBase').value.replace(/\/$/, '');
+      try {
+        const response = await fetch(`${apiBase}/families?limit=1&offset=0`, {
+          method: 'GET',
+          headers: authHeaders(false)
+        });
+        const body = await response.json();
+        if (!response.ok) throw new Error(JSON.stringify(body));
+        if (!Array.isArray(body) || body.length === 0) throw new Error('No families found. Create one first.');
+        document.getElementById('familyId').value = body[0].id;
+        rawEl.textContent = `Loaded latest family_id: ${body[0].id}`;
+      } catch (err) {
+        rawEl.textContent = `ERROR loading latest family: ${String(err)}`;
+      }
+    });
+  </script>
+</body>
+</html>

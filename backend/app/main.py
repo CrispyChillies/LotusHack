@@ -13,6 +13,7 @@ from app.routers.media_crud_router import router as media_crud_router
 from app.routers.user_crud_router import router as user_crud_router
 
 _FRONTEND_FILE = Path(__file__).resolve().parents[1] / "manual_test" / "index.html"
+_GRAPH_VISUALIZE_FILE = Path(__file__).resolve().parents[1] / "manual_test" / "graph_visualize.html"
 _ngrok_tunnel = None
 
 load_dotenv()
@@ -53,6 +54,11 @@ async def root():
 @app.get("/frontend", tags=["Frontend"])
 async def frontend_page():
     return FileResponse(_FRONTEND_FILE)
+
+
+@app.get("/graph_visualize", tags=["Frontend"])
+async def graph_visualize_page():
+    return FileResponse(_GRAPH_VISUALIZE_FILE)
 
 
 @app.on_event("startup")

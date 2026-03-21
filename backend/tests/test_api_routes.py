@@ -91,3 +91,11 @@ def test_frontend_page():
     assert response.status_code == 200
     assert "text/html" in response.headers.get("content-type", "")
     assert "Memory Flow Manual Tester" in response.text
+
+
+def test_graph_visualize_page():
+    client = TestClient(app)
+    response = client.get("/graph_visualize")
+    assert response.status_code == 200
+    assert "text/html" in response.headers.get("content-type", "")
+    assert "Memory Graph Visualizer" in response.text
