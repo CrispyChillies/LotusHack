@@ -212,6 +212,13 @@ class UploadUrlResponse(BaseModel):
     expires_in: int
 
 
+class UploadedFileResponse(BaseModel):
+    s3_key: str
+    s3_url: str
+    content_type: str
+    size_bytes: int
+
+
 class UserVoiceUpdateRequest(BaseModel):
     voice_sample_s3_url: str
 

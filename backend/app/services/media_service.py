@@ -81,6 +81,14 @@ class PresignedUploadResult:
 	expires_in: int
 
 
+@dataclass(frozen=True)
+class UploadFileResult:
+	s3_key: str
+	s3_url: str
+	content_type: str
+	size_bytes: int
+
+
 def _get_env(name: str) -> str:
 	value = os.getenv(name)
 	if not value:
@@ -259,6 +267,61 @@ def _build_object_key(family_id: str, media_type: str, extension: str) -> str:
 	day = now.strftime("%d")
 	unique_id = uuid.uuid4().hex
 	return f"media/{family_id}/{media_type}/{year}/{month}/{day}/{unique_id}{extension}"
+
+
+def _build_prefixed_object_key(prefix: str, extension: str) -> str:
+	clean_prefix = "/".join(part for part in prefix.split("/") if part).strip()
+	if not clean_prefix:
+		raise HTTPException(
+			status_code=status.HTTP_400_BAD_REQUEST,
+			detail="Invalid upload prefix.",
+		)
+	now = datetime.now(timezone.utc)
+	return (
+		f"{clean_prefix}/{now.strftime('%Y')}/{now.strftime('%m')}/{now.strftime('%d')}/"
+		f"{uuid.uuid4().hex}{extension}"
+	)
+
+
+async def upload_file_to_s3(
+	*,
+	upload: UploadFile,
+	prefix: str,
+	allowed_content_types: set[str],
+) -> UploadFileResult:
+	content_type = (upload.content_type or "").lower().strip()
+	if content_type not in allowed_content_types:
+		raise HTTPException(
+			status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+			detail="Unsupported file content type.",
+		)
+
+	file_obj = upload.file
+	file_obj.seek(0)
+	size_bytes = _file_size_bytes(file_obj)
+	if size_bytes <= 0:
+		raise HTTPException(
+			status_code=status.HTTP_400_BAD_REQUEST,
+			detail="Uploaded file is empty.",
+		)
+
+	max_size_bytes = _get_max_file_size_bytes()
+	if size_bytes > max_size_bytes:
+		raise HTTPException(
+			status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+			detail=f"File exceeds maximum allowed size of {max_size_bytes} bytes.",
+		)
+
+	key = _build_prefixed_object_key(prefix=prefix, extension=_safe_extension(upload))
+	await run_in_threadpool(_upload_to_s3_sync, upload, key, content_type)
+
+	bucket = _get_bucket_name()
+	return UploadFileResult(
+		s3_key=key,
+		s3_url=_public_s3_url(bucket=bucket, key=key),
+		content_type=content_type,
+		size_bytes=size_bytes,
+	)
 
 
 def generate_upload_url(

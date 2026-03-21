@@ -8,17 +8,16 @@ from urllib.parse import urlparse
 
 import httpx
 from dotenv import load_dotenv
-from fastapi import HTTPException, status
+from fastapi import HTTPException, UploadFile, status
 
 from app.schemas.crud import (
-    UploadUrlRequest,
-    UploadUrlResponse,
+    UploadedFileResponse,
     UserVoiceUpdateRequest,
     VoiceCloneResponse,
     VoiceSpeakRequest,
 )
 from app.services import user_crud
-from app.services.media_service import generate_download_url, generate_upload_url
+from app.services.media_service import generate_download_url, upload_file_to_s3
 
 load_dotenv()
 
@@ -55,15 +54,6 @@ def _get_env(name: str) -> str:
     return value
 
 
-def _validate_content_type(content_type: str, allowed: set[str], kind: str) -> None:
-    normalized = content_type.lower().strip()
-    if normalized not in allowed:
-        raise HTTPException(
-            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
-            detail=f"Unsupported {kind} content_type.",
-        )
-
-
 def _infer_filename_from_url(url: str) -> str:
     path = urlparse(url).path
     name = Path(path).name
@@ -84,24 +74,46 @@ def _elevenlabs_headers(accept: str = "application/json") -> dict[str, str]:
     }
 
 
-async def create_image_upload_url(payload: UploadUrlRequest) -> UploadUrlResponse:
-    _validate_content_type(payload.content_type, _ALLOWED_IMAGE_CONTENT_TYPES, "image")
-    result = generate_upload_url(
+def _format_elevenlabs_error(exc: httpx.HTTPStatusError) -> str:
+    response = exc.response
+    try:
+        payload = response.json()
+    except ValueError:
+        payload = None
+
+    if isinstance(payload, dict):
+        detail = payload.get("detail")
+        if isinstance(detail, dict):
+            status_code = detail.get("status")
+            message = detail.get("message")
+            if status_code and message:
+                return f"{status_code}: {message}"
+        message = payload.get("message")
+        if isinstance(message, str) and message.strip():
+            return message
+
+    body = response.text.strip()
+    if body:
+        return body[:500]
+    return str(exc)
+
+
+async def upload_image_file(file: UploadFile) -> UploadedFileResponse:
+    result = await upload_file_to_s3(
+        upload=file,
         prefix="uploads/images",
-        file_name=payload.file_name,
-        content_type=payload.content_type,
+        allowed_content_types=_ALLOWED_IMAGE_CONTENT_TYPES,
     )
-    return UploadUrlResponse(**result.__dict__)
+    return UploadedFileResponse(**result.__dict__)
 
 
-async def create_voice_upload_url(payload: UploadUrlRequest) -> UploadUrlResponse:
-    _validate_content_type(payload.content_type, _ALLOWED_VOICE_CONTENT_TYPES, "voice")
-    result = generate_upload_url(
+async def upload_voice_file(file: UploadFile) -> UploadedFileResponse:
+    result = await upload_file_to_s3(
+        upload=file,
         prefix="uploads/voices",
-        file_name=payload.file_name,
-        content_type=payload.content_type,
+        allowed_content_types=_ALLOWED_VOICE_CONTENT_TYPES,
     )
-    return UploadUrlResponse(**result.__dict__)
+    return UploadedFileResponse(**result.__dict__)
 
 
 async def update_user_voice_sample(user_id: str, payload: UserVoiceUpdateRequest):
@@ -148,6 +160,12 @@ async def clone_user_voice(user_id: str) -> VoiceCloneResponse:
                 },
             )
             create_voice_resp.raise_for_status()
+    except httpx.HTTPStatusError as exc:
+        await user_crud.update_user_voice_fields(user_id, voice_status="failed")
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"ElevenLabs voice clone failed: {_format_elevenlabs_error(exc)}",
+        )
     except httpx.HTTPError as exc:
         await user_crud.update_user_voice_fields(user_id, voice_status="failed")
         raise HTTPException(
@@ -187,21 +205,30 @@ async def speak_with_user_voice(user_id: str, payload: VoiceSpeakRequest) -> Tts
     try:
         async with httpx.AsyncClient(timeout=120) as client:
             response = await client.post(
-                f"https://api.elevenlabs.io/v1/text-to-speech/{user.eleven_voice_id}",
+                f"https://api.elevenlabs.io/v1/text-to-speech/{user.eleven_voice_id}?output_format=mp3_44100_128",
                 headers={
                     **_elevenlabs_headers(accept="audio/mpeg"),
-                    "content-type": "application/json",
+                    "Content-Type": "application/json",
                 },
                 json={
-                    "text": payload.text,
-                    "model_id": payload.model_id,
+                    "text": payload.text,          # text đã được chuẩn hóa cho tiếng Việt
+                    "model_id": payload.model_id,  # hoặc model Eleven v3 nếu tài khoản/flow của bạn dùng được
+                    "language_code": "vi",
                     "voice_settings": {
-                        "stability": 0.5,
-                        "similarity_boost": 0.8,
-                    },
+                        "stability": 0.65,
+                        "similarity_boost": 0.7,
+                        "style": 0.0,
+                        "speed": 0.95,
+                        "use_speaker_boost": True
+                    }
                 },
             )
             response.raise_for_status()
+    except httpx.HTTPStatusError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"ElevenLabs text-to-speech failed: {_format_elevenlabs_error(exc)}",
+        )
     except httpx.HTTPError as exc:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,

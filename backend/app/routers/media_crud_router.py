@@ -15,8 +15,7 @@ from app.schemas.crud import (
     ReminderCreate,
     ReminderRead,
     ReminderUpdate,
-    UploadUrlRequest,
-    UploadUrlResponse,
+    UploadedFileResponse,
 )
 from app.services import media_crud
 from app.services import voice_service
@@ -24,14 +23,14 @@ from app.services import voice_service
 router = APIRouter()
 
 
-@router.post("/image/upload-url", response_model=UploadUrlResponse)
-async def create_image_upload_url(payload: UploadUrlRequest):
-    return await voice_service.create_image_upload_url(payload)
+@router.post("/image/upload-url", response_model=UploadedFileResponse)
+async def upload_image_file(file: UploadFile = File(...)):
+    return await voice_service.upload_image_file(file)
 
 
-@router.post("/voice/upload-url", response_model=UploadUrlResponse)
-async def create_voice_upload_url(payload: UploadUrlRequest):
-    return await voice_service.create_voice_upload_url(payload)
+@router.post("/voice/upload-url", response_model=UploadedFileResponse)
+async def upload_voice_file(file: UploadFile = File(...)):
+    return await voice_service.upload_voice_file(file)
 
 
 @router.post("/media", response_model=MediaRead, status_code=201)
