@@ -12,6 +12,7 @@ from psycopg.rows import dict_row
 
 from app.schemas.crud import (
 	FamilyCreate,
+	FamilyIdRead,
 	FamilyRead,
 	FamilyUpdate,
 	UserCreate,
@@ -327,6 +328,29 @@ async def list_families(limit: int = 50, offset: int = 0) -> list[FamilyRead]:
 			)
 			rows = cur.fetchall()
 	return [FamilyRead(**row) for row in rows]
+
+
+async def get_families_id(user_id: str) -> list[FamilyIdRead]:
+	_init_db()
+	try:
+		user_uuid = str(UUID(user_id))
+	except ValueError:
+		raise HTTPException(status_code=400, detail="Invalid user id.")
+
+	with _connect() as conn:
+		with conn.cursor() as cur:
+			cur.execute(
+				"""
+				SELECT id
+				FROM families
+				WHERE patient_id = %s
+				ORDER BY created_at DESC
+				""",
+				(user_uuid,),
+			)
+			rows = cur.fetchall()
+
+	return [FamilyIdRead(**row) for row in rows]
 
 
 async def update_family(family_id: str, payload: FamilyUpdate) -> FamilyRead:

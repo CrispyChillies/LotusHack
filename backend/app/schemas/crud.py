@@ -59,6 +59,12 @@ class FamilyRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class FamilyIdRead(BaseModel):
+    id: UUID
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 class UserRelationCreate(BaseModel):
     subject_user_id: UUID
     object_user_id: UUID

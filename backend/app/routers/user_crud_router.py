@@ -3,6 +3,7 @@ from fastapi.responses import StreamingResponse
 
 from app.schemas.crud import (
     FamilyCreate,
+    FamilyIdRead,
     FamilyRead,
     FamilyUpdate,
     VoiceUploadAndCloneResponse,
@@ -86,6 +87,11 @@ async def get_family(family_id: str):
 @router.get("/families", response_model=list[FamilyRead])
 async def list_families(limit: int = 50, offset: int = 0):
     return await user_crud.list_families(limit=limit, offset=offset)
+
+
+@router.get("/families/get_families_id/{user_id}", response_model=list[FamilyIdRead])
+async def get_families_id(user_id: str):
+    return await user_crud.get_families_id(user_id)
 
 
 @router.patch("/families/{family_id}", response_model=FamilyRead)
