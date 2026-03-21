@@ -32,3 +32,22 @@ def test_graphiti_payload_shape():
     assert "edges" in payload
     assert "meta" in payload
     assert isinstance(payload["nodes"], list)
+
+
+def test_rule_extraction_grandpa_anna_park_sentence():
+    extractor = EntityRelationExtractor()
+    result = extractor._extract_with_rules(
+        note_text="This is an image of grandpa and Anna play at the park",
+        existing_entities=[],
+    )
+
+    people = {n.name for n in result.nodes if n.node_type == "Person"}
+    places = {n.name for n in result.nodes if n.node_type == "Place"}
+    events = {n.name for n in result.nodes if n.node_type == "Event"}
+
+    assert "This" not in people
+    assert "Anna" in people
+    assert "Grandpa" in people
+    assert "park" in places
+    assert "play" in events
+    assert any(e.relation_type == "happened_at" for e in result.edges)

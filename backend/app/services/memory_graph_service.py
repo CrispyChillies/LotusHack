@@ -191,6 +191,62 @@ class MemoryGraphService:
             "documents": total_documents,
         }
 
+    async def sync_media_item(self, media_id: str) -> dict[str, int]:
+        self.init_storage()
+        media_uuid = self._as_uuid(media_id, "media_id")
+
+        with self._connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT id AS source_id,
+                           family_id,
+                           'media' AS source_type,
+                           COALESCE(notes, '') AS text,
+                           s3_url AS image_url
+                    FROM media
+                    WHERE id = %s
+                    """,
+                    (media_uuid,),
+                )
+                row = cur.fetchone()
+
+        if not row:
+            return {"processed": 0, "nodes": 0, "edges": 0, "documents": 0}
+
+        family_uuid = str(row["family_id"])
+        source_id = str(row["source_id"])
+        note_text = row["text"] or ""
+        image_url = row.get("image_url")
+
+        if image_url:
+            try:
+                image_url = generate_download_url(image_url)
+            except Exception:
+                image_url = None
+
+        extraction = self.extractor.extract_from_memory_item(
+            note_text=note_text,
+            image_url=image_url,
+            existing_entities=self._list_existing_entity_names(family_uuid),
+            context={"source_type": "media", "source_id": source_id},
+        )
+
+        upserted = self._upsert_extraction(
+            family_uuid=family_uuid,
+            source_type="media",
+            source_id=source_id,
+            source_text=note_text,
+            extraction=extraction,
+        )
+
+        return {
+            "processed": 1,
+            "nodes": upserted["nodes"],
+            "edges": upserted["edges"],
+            "documents": upserted["documents"],
+        }
+
     async def hybrid_search(
         self,
         *,

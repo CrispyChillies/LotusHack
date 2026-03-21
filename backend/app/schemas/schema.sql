@@ -69,6 +69,8 @@ CREATE TABLE "memory_stories_audio" (
   "created_at" timestamp
 );
 
+
+
 ALTER TABLE "families" ADD FOREIGN KEY ("patient_id") REFERENCES "users" ("id") DEFERRABLE INITIALLY IMMEDIATE;
 
 ALTER TABLE "user_relations" ADD FOREIGN KEY ("subject_user_id") REFERENCES "users" ("id") DEFERRABLE INITIALLY IMMEDIATE;

@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.routers.auth_router import router as auth_router
+from app.routers.graph_router import router as graph_router
 from app.routers.relation_router import router as relation_router
 from app.routers.media_crud_router import router as media_crud_router
 from app.routers.user_crud_router import router as user_crud_router
@@ -22,6 +23,7 @@ app.add_middleware(
 
 # Mount các Router
 app.include_router(auth_router, prefix="/api/v1/auth", tags=["Auth"])
+app.include_router(graph_router, prefix="/api/v1/graph", tags=["Memory Graph"])
 app.include_router(relation_router, prefix="/api/relations", tags=["Relations"])
 app.include_router(user_crud_router, prefix="/api/v1", tags=["User CRUD"])
 app.include_router(media_crud_router, prefix="/api/v1", tags=["Media CRUD"])
