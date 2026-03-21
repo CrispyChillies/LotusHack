@@ -119,6 +119,10 @@ def _normalized_endpoint_base() -> str | None:
 	if not parsed.scheme or not parsed.netloc:
 		raise RuntimeError("AWS_S3_ENDPOINT_URL must be a valid URL")
 
+	netloc = parsed.netloc.lower()
+	if ".s3." in netloc and netloc.endswith("amazonaws.com"):
+		return None
+
 	base = f"{parsed.scheme}://{parsed.netloc}".rstrip("/")
 	return base
 
@@ -339,7 +343,22 @@ def _upload_to_s3_sync(upload: UploadFile, key: str, content_type: str) -> None:
 				"ServerSideEncryption": "AES256",
 			},
 		)
-	except (ClientError, BotoCoreError) as exc:
+	except ClientError as exc:
+		error_code = (exc.response.get("Error") or {}).get("Code", "")
+		error_msg = (exc.response.get("Error") or {}).get("Message", str(exc))
+		if error_code in {"AccessDenied", "UnauthorizedOperation"}:
+			raise HTTPException(
+				status_code=status.HTTP_403_FORBIDDEN,
+				detail=(
+					"S3 upload denied by AWS IAM/Bucket policy. "
+					f"Code={error_code}, message={error_msg}"
+				),
+			)
+		raise HTTPException(
+			status_code=status.HTTP_502_BAD_GATEWAY,
+			detail=f"S3 upload failed: {error_code or 'Unknown'} - {error_msg}",
+		)
+	except BotoCoreError as exc:
 		raise HTTPException(
 			status_code=status.HTTP_502_BAD_GATEWAY,
 			detail=f"S3 upload failed: {exc}",

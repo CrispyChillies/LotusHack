@@ -1,0 +1,255 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Memory Flow Manual Tester</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 24px; background: #f8fafc; color: #0f172a; }
+    h1, h2 { margin: 0 0 12px; }
+    .card { background: #fff; border: 1px solid #e2e8f0; border-radius: 10px; padding: 16px; margin-bottom: 16px; }
+    label { display: block; margin: 8px 0 4px; font-size: 13px; color: #334155; }
+    input, textarea, button, select { width: 100%; padding: 10px; border: 1px solid #cbd5e1; border-radius: 8px; box-sizing: border-box; }
+    textarea { min-height: 80px; font-family: Consolas, monospace; }
+    button { cursor: pointer; background: #0f172a; color: #fff; font-weight: 600; margin-top: 10px; }
+    button.secondary { background: #334155; }
+    button:disabled { background: #94a3b8; cursor: not-allowed; }
+    .row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .mono { font-family: Consolas, monospace; font-size: 12px; background: #0b1020; color: #e2e8f0; padding: 12px; border-radius: 8px; overflow: auto; max-height: 300px; }
+    .small { font-size: 12px; color: #475569; }
+    .ok { color: #166534; }
+    .warn { color: #b45309; }
+    .error { color: #b91c1c; }
+  </style>
+</head>
+<body>
+  <h1>Memory Flow Manual Tester</h1>
+  <p class="small">Flow: Create user → Create family → Upload multiple images/videos + notes → Query memories.</p>
+
+  <div class="card">
+    <h2>1) API Config</h2>
+    <label>API Base URL</label>
+    <input id="apiBase" value="http://127.0.0.1:8000/api/v1" />
+    <label>Optional Bearer Token (if your endpoints require auth later)</label>
+    <input id="bearerToken" placeholder="Leave empty if not required" />
+  </div>
+
+  <div class="card">
+    <h2>2) Create User + Family</h2>
+    <div class="row">
+      <div>
+        <label>User JSON</label>
+        <textarea id="userJson">{
+  "email": "sarah.memory.demo@example.com",
+  "full_name": "Sarah Nguyen",
+  "role": "patient",
+  "persona": "Warm and family-oriented",
+  "voice_sample_s3_url": null,
+  "voice_status": "pending",
+  "eleven_voice_id": null
+}</textarea>
+      </div>
+      <div>
+        <label>Family JSON</label>
+        <textarea id="familyJson">{
+  "name": "Nguyen Family"
+}</textarea>
+      </div>
+    </div>
+    <button id="btnCreateUserFamily">Create User + Family</button>
+    <div class="small" id="ids"></div>
+  </div>
+
+  <div class="card">
+    <h2>3) Upload Multiple Images + Videos</h2>
+    <label>Images (multiple)</label>
+    <input id="images" type="file" accept="image/*" multiple />
+    <label>Image Notes (one line per image in selected order)</label>
+    <textarea id="imageNotes">Grandpa and Anna are playing in the park with a red kite.
+Anna celebrates her birthday with family at home.</textarea>
+
+    <label>Videos (multiple)</label>
+    <input id="videos" type="file" accept="video/*" multiple />
+    <label>Video Notes (one line per video in selected order)</label>
+    <textarea id="videoNotes">Family camping trip near the lake, everyone looks happy.</textarea>
+
+    <button id="btnUploadAll" class="secondary">Upload All Media</button>
+    <div class="small" id="uploadSummary"></div>
+  </div>
+
+  <div class="card">
+    <h2>4) Retrieve Memories</h2>
+    <label>Graph Query JSON</label>
+    <textarea id="queryJson">{
+  "query": "What memories involve Anna and grandpa at the park?",
+  "top_k": 5,
+  "use_advanced": true,
+  "required_entities": ["Anna", "Grandpa", "park"],
+  "required_relations": ["attended", "happened_at"],
+  "max_hops": 2
+}</textarea>
+    <div class="row">
+      <button id="btnListMedia" class="secondary">List Media</button>
+      <button id="btnQueryGraph">Query Graph Memories</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Response Log</h2>
+    <div id="log" class="mono"></div>
+  </div>
+
+  <script>
+    const state = {
+      userId: null,
+      familyId: null,
+      uploadedMedia: []
+    };
+
+    const apiBaseInput = document.getElementById('apiBase');
+    const bearerTokenInput = document.getElementById('bearerToken');
+    const logEl = document.getElementById('log');
+    const idsEl = document.getElementById('ids');
+
+    function log(title, data) {
+      const now = new Date().toISOString();
+      const chunk = `[${now}] ${title}\n${typeof data === 'string' ? data : JSON.stringify(data, null, 2)}\n\n`;
+      logEl.textContent = chunk + logEl.textContent;
+    }
+
+    function getHeaders(isJson = true) {
+      const headers = {};
+      if (isJson) headers['Content-Type'] = 'application/json';
+      const token = bearerTokenInput.value.trim();
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+      return headers;
+    }
+
+    function splitLines(text) {
+      return text.split('\n').map(x => x.trim()).filter(Boolean);
+    }
+
+    async function apiFetch(path, options = {}) {
+      const url = `${apiBaseInput.value.replace(/\/$/, '')}${path}`;
+      const response = await fetch(url, options);
+      const text = await response.text();
+      let body;
+      try { body = text ? JSON.parse(text) : {}; } catch { body = { raw: text }; }
+      if (!response.ok) {
+        throw new Error(`${response.status} ${response.statusText}: ${JSON.stringify(body)}`);
+      }
+      return body;
+    }
+
+    document.getElementById('btnCreateUserFamily').addEventListener('click', async () => {
+      try {
+        const userPayload = JSON.parse(document.getElementById('userJson').value);
+        const familyPayloadRaw = JSON.parse(document.getElementById('familyJson').value);
+
+        const user = await apiFetch('/users', {
+          method: 'POST',
+          headers: getHeaders(true),
+          body: JSON.stringify(userPayload)
+        });
+
+        const family = await apiFetch('/families', {
+          method: 'POST',
+          headers: getHeaders(true),
+          body: JSON.stringify({ ...familyPayloadRaw, patient_id: user.id })
+        });
+
+        state.userId = user.id;
+        state.familyId = family.id;
+        idsEl.innerHTML = `<span class="ok">Created user_id=${state.userId}</span><br/><span class="ok">Created family_id=${state.familyId}</span>`;
+        log('Create User + Family', { user, family });
+      } catch (err) {
+        log('Create User + Family ERROR', String(err));
+        idsEl.innerHTML = `<span class="error">${String(err)}</span>`;
+      }
+    });
+
+    document.getElementById('btnUploadAll').addEventListener('click', async () => {
+      if (!state.userId || !state.familyId) {
+        log('Upload ERROR', 'Please create user + family first.');
+        return;
+      }
+
+      const imageFiles = Array.from(document.getElementById('images').files || []);
+      const videoFiles = Array.from(document.getElementById('videos').files || []);
+      const imageNotes = splitLines(document.getElementById('imageNotes').value);
+      const videoNotes = splitLines(document.getElementById('videoNotes').value);
+
+      const jobs = [
+        ...imageFiles.map((file, idx) => ({ file, note: imageNotes[idx] || imageNotes[0] || 'Image memory note' })),
+        ...videoFiles.map((file, idx) => ({ file, note: videoNotes[idx] || videoNotes[0] || 'Video memory note' }))
+      ];
+
+      if (!jobs.length) {
+        log('Upload', 'No files selected.');
+        return;
+      }
+
+      const results = [];
+      for (const [index, job] of jobs.entries()) {
+        try {
+          const formData = new FormData();
+          formData.append('file', job.file);
+          formData.append('family_id', state.familyId);
+          formData.append('uploaded_by', state.userId);
+          formData.append('notes', job.note);
+          formData.append('captured_at', new Date().toISOString());
+
+          const uploadUrl = `${apiBaseInput.value.replace(/\/$/, '')}/media/upload`;
+          const res = await fetch(uploadUrl, {
+            method: 'POST',
+            headers: getHeaders(false),
+            body: formData
+          });
+          const body = await res.json();
+          if (!res.ok) throw new Error(JSON.stringify(body));
+
+          results.push(body);
+          state.uploadedMedia.push(body);
+          log(`Upload [${index + 1}/${jobs.length}] OK`, body);
+        } catch (err) {
+          log(`Upload [${index + 1}/${jobs.length}] ERROR`, String(err));
+        }
+      }
+
+      document.getElementById('uploadSummary').innerHTML = `<span class="ok">Uploaded ${results.length}/${jobs.length} files</span>`;
+    });
+
+    document.getElementById('btnListMedia').addEventListener('click', async () => {
+      try {
+        const media = await apiFetch('/media?limit=50&offset=0', {
+          method: 'GET',
+          headers: getHeaders(false)
+        });
+        log('List Media', media);
+      } catch (err) {
+        log('List Media ERROR', String(err));
+      }
+    });
+
+    document.getElementById('btnQueryGraph').addEventListener('click', async () => {
+      if (!state.familyId) {
+        log('Graph Query ERROR', 'Please create user + family first.');
+        return;
+      }
+
+      try {
+        const queryPayload = JSON.parse(document.getElementById('queryJson').value);
+        const payload = { ...queryPayload, family_id: state.familyId };
+        const result = await apiFetch('/graph/query', {
+          method: 'POST',
+          headers: getHeaders(true),
+          body: JSON.stringify(payload)
+        });
+        log('Graph Query Result', result);
+      } catch (err) {
+        log('Graph Query ERROR', String(err));
+      }
+    });
+  </script>
+</body>
+</html>

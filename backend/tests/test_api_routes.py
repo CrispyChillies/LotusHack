@@ -83,3 +83,11 @@ def test_graph_query_advanced_endpoint(monkeypatch):
     body = response.json()
     assert body["mode"] == "advanced"
     assert body["graph_context"] is not None
+
+
+def test_frontend_page():
+    client = TestClient(app)
+    response = client.get("/frontend")
+    assert response.status_code == 200
+    assert "text/html" in response.headers.get("content-type", "")
+    assert "Memory Flow Manual Tester" in response.text

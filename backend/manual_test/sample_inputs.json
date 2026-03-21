@@ -1,0 +1,32 @@
+{
+  "apiBase": "http://127.0.0.1:8000/api/v1",
+  "user": {
+    "email": "sarah.memory.demo@example.com",
+    "full_name": "Sarah Nguyen",
+    "role": "patient",
+    "persona": "Warm and family-oriented",
+    "voice_sample_s3_url": null,
+    "voice_status": "pending",
+    "eleven_voice_id": null
+  },
+  "family": {
+    "name": "Nguyen Family"
+  },
+  "notes": {
+    "images": [
+      "Grandpa and Anna are playing in the park with a red kite.",
+      "Anna celebrates her birthday with family at home."
+    ],
+    "videos": [
+      "Family camping trip near the lake, everyone looks happy."
+    ]
+  },
+  "memoryQuery": {
+    "query": "What memories involve Anna and grandpa at the park?",
+    "top_k": 5,
+    "use_advanced": true,
+    "required_entities": ["Anna", "Grandpa", "park"],
+    "required_relations": ["attended", "happened_at"],
+    "max_hops": 2
+  }
+}
