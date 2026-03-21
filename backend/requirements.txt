@@ -12,3 +12,4 @@ httpx>=0.27.0
 python-multipart>=0.0.20
 openai>=1.51.0
 pyngrok>=7.2.0
+requests>=2.32.0
