@@ -53,14 +53,9 @@ allow_credentials = _is_truthy(os.getenv("CORS_ALLOW_CREDENTIALS", "true"))
 
 app.add_middleware(
     CORSMiddleware,
-<<<<<<< HEAD
-    allow_origins=["*"],  # Trong production nên sửa lại domain cụ thể
-    allow_credentials=False,
-=======
     allow_origins=cors_allow_origins,
     allow_origin_regex=cors_allow_origin_regex,
     allow_credentials=allow_credentials,
->>>>>>> c63dfd7989c78707c04ebd80e0d7f63804962da9
     allow_methods=["*"],
     allow_headers=["*"],
 )
