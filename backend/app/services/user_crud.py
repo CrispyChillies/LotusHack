@@ -49,6 +49,7 @@ def _init_db() -> None:
 					email VARCHAR UNIQUE,
 					role VARCHAR,
 					persona TEXT,
+					avatar_s3_url VARCHAR,
 					voice_sample_s3_url VARCHAR,
 					voice_status VARCHAR,
 					eleven_voice_id VARCHAR,
@@ -56,6 +57,7 @@ def _init_db() -> None:
 				)
 				"""
 			)
+			cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_s3_url VARCHAR")
 			cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS eleven_voice_id VARCHAR")
 			cur.execute(
 				"""
@@ -117,9 +119,12 @@ async def create_user(payload: UserCreate) -> UserRead:
 
 				cur.execute(
 					"""
-					INSERT INTO users (id, full_name, email, role, persona, voice_sample_s3_url, voice_status, eleven_voice_id, created_at)
-					VALUES (%s, %s, %s, %s, %s, %s, %s, %s, now())
-					RETURNING id, full_name, email, role, persona, voice_sample_s3_url, voice_status, eleven_voice_id, created_at
+					INSERT INTO users (
+						id, full_name, email, role, persona, avatar_s3_url,
+						voice_sample_s3_url, voice_status, eleven_voice_id, created_at
+					)
+					VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, now())
+					RETURNING id, full_name, email, role, persona, avatar_s3_url, voice_sample_s3_url, voice_status, eleven_voice_id, created_at
 					""",
 					(
 						str(user_id),
@@ -127,6 +132,7 @@ async def create_user(payload: UserCreate) -> UserRead:
 						payload.email,
 						payload.role,
 						payload.persona,
+						payload.avatar_s3_url,
 						payload.voice_sample_s3_url,
 						payload.voice_status,
 						payload.eleven_voice_id,
@@ -153,7 +159,7 @@ async def get_user(user_id: str) -> UserRead:
 		with conn.cursor() as cur:
 			cur.execute(
 				"""
-				SELECT id, full_name, email, role, persona, voice_sample_s3_url, voice_status, eleven_voice_id, created_at
+				SELECT id, full_name, email, role, persona, avatar_s3_url, voice_sample_s3_url, voice_status, eleven_voice_id, created_at
 				FROM users
 				WHERE id = %s
 				""",
@@ -172,7 +178,7 @@ async def list_users(limit: int = 50, offset: int = 0) -> list[UserRead]:
 		with conn.cursor() as cur:
 			cur.execute(
 				"""
-				SELECT id, full_name, email, role, persona, voice_sample_s3_url, voice_status, eleven_voice_id, created_at
+				SELECT id, full_name, email, role, persona, avatar_s3_url, voice_sample_s3_url, voice_status, eleven_voice_id, created_at
 				FROM users
 				ORDER BY created_at DESC
 				LIMIT %s OFFSET %s
@@ -190,7 +196,7 @@ async def update_user(user_id: str, payload: UserUpdate) -> UserRead:
 	except ValueError:
 		raise HTTPException(status_code=400, detail="Invalid user id.")
 
-	values = payload.model_dump(exclude_none=True)
+	values = payload.model_dump(exclude_unset=True)
 	set_clause, params = _build_update_clause(values)
 	params.append(user_uuid)
 
@@ -201,7 +207,7 @@ async def update_user(user_id: str, payload: UserUpdate) -> UserRead:
 				UPDATE users
 				SET {set_clause}
 				WHERE id = %s
-				RETURNING id, full_name, email, role, persona, voice_sample_s3_url, voice_status, eleven_voice_id, created_at
+				RETURNING id, full_name, email, role, persona, avatar_s3_url, voice_sample_s3_url, voice_status, eleven_voice_id, created_at
 				""",
 				params,
 			)
@@ -264,9 +270,35 @@ async def update_user_voice_fields(
 				UPDATE users
 				SET {set_clause}
 				WHERE id = %s
-				RETURNING id, full_name, email, role, persona, voice_sample_s3_url, voice_status, eleven_voice_id, created_at
+				RETURNING id, full_name, email, role, persona, avatar_s3_url, voice_sample_s3_url, voice_status, eleven_voice_id, created_at
 				""",
 				params,
+			)
+			row = cur.fetchone()
+		conn.commit()
+
+	if not row:
+		_raise_not_found("User", user_id)
+	return UserRead(**row)
+
+
+async def update_user_avatar(user_id: str, avatar_s3_url: str | None) -> UserRead:
+	_init_db()
+	try:
+		user_uuid = str(UUID(user_id))
+	except ValueError:
+		raise HTTPException(status_code=400, detail="Invalid user id.")
+
+	with _connect() as conn:
+		with conn.cursor() as cur:
+			cur.execute(
+				"""
+				UPDATE users
+				SET avatar_s3_url = %s
+				WHERE id = %s
+				RETURNING id, full_name, email, role, persona, avatar_s3_url, voice_sample_s3_url, voice_status, eleven_voice_id, created_at
+				""",
+				(avatar_s3_url, user_uuid),
 			)
 			row = cur.fetchone()
 		conn.commit()

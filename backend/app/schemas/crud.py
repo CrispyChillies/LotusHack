@@ -12,6 +12,7 @@ class UserCreate(BaseModel):
     full_name: Optional[str] = None
     role: Optional[str] = None
     persona: Optional[str] = None
+    avatar_s3_url: Optional[str] = None
     voice_sample_s3_url: Optional[str] = None
     voice_status: Optional[str] = None
     eleven_voice_id: Optional[str] = None
@@ -21,6 +22,7 @@ class UserUpdate(BaseModel):
     full_name: Optional[str] = None
     role: Optional[str] = None
     persona: Optional[str] = None
+    avatar_s3_url: Optional[str] = None
     voice_sample_s3_url: Optional[str] = None
     voice_status: Optional[str] = None
     eleven_voice_id: Optional[str] = None
@@ -32,6 +34,7 @@ class UserRead(BaseModel):
     email: Optional[str]
     role: Optional[str]
     persona: Optional[str]
+    avatar_s3_url: Optional[str]
     voice_sample_s3_url: Optional[str]
     voice_status: Optional[str]
     eleven_voice_id: Optional[str]
@@ -229,15 +232,25 @@ class UserVoiceUpdateRequest(BaseModel):
     voice_sample_s3_url: str
 
 
+class UserAvatarUpdateRequest(BaseModel):
+    avatar_s3_url: Optional[str] = None
+
+
 class VoiceCloneResponse(BaseModel):
     user_id: UUID
     voice_status: str
     eleven_voice_id: str
 
+
 class VoiceUploadAndCloneResponse(BaseModel):
     upload: UploadedFileResponse
     user: UserRead
     clone: VoiceCloneResponse
+
+
+class UserAvatarUploadResponse(BaseModel):
+    upload: UploadedFileResponse
+    user: UserRead
 
 
 class VoiceSpeakRequest(BaseModel):
